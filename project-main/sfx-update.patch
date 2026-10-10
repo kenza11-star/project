@@ -1,0 +1,401 @@
+--- a/lib/game/sfx.ts
++++ b/lib/game/sfx.ts
+@@ -1,4 +1,7 @@
+-// Daftar SFX (semua dibuat prosedural oleh scripts/gen-sfx.py -> public/sfx/*.wav, bebas lisensi).
++// Daftar SFX. File .wav lama dibuat prosedural oleh scripts/gen-sfx.py (tetap ada, dipakai sebagai cadangan bila file baru gagal dimuat);
++// file .mp3 dari repo Sound dipakai lewat potongan (clip) di sfxclips.ts (dibuat scripts/gen-sfx-clips.py).
++import { CLIPS, WALK_CLIPS, RUN_CLIPS, STAIRS_CLIPS, HEART_CLIPS, BREATH_CLIPS } from './sfxclips';
++export { CLIPS };
+ export type SfxName =
+   | 'step_carpet' | 'step_tile' | 'ambient' | 'buzz' | 'distant'
+   | 'door_open' | 'door_close' | 'door_locked'
+@@ -7,10 +10,12 @@
+   | 'locker_open' | 'locker_close' | 'lid_open' | 'lid_close' | 'search'
+   | 'flash_click' | 'battery_use' | 'flash_die'
+   | 'lights_off' | 'lights_on' | 'furniture_scrape'
+-  | 'entity_whisper' | 'entity_steps' | 'breath' | 'heartbeat' | 'pant' | 'rustle';
++  | 'entity_whisper' | 'entity_steps' | 'breath' | 'heartbeat' | 'pant' | 'rustle'
++  | 'step_walk' | 'step_run' | 'step_stairs' | 'floor_creak' | 'door_slam' | 'impact_slam';
+ 
+ export interface SfxDef {
+-  files: string[];   // varian (dipilih acak, tidak berulang berurutan)
++  files: string[];   // varian: nama clip (sfxclips.ts) atau nama .wav (dipilih acak, tidak berulang berurutan)
++  legacy?: string[]; // file .wav lama: dipakai hanya bila SEMUA varian baru gagal dimuat
+   vol: number;       // volume dasar 0..1
+   jitter: number;    // variasi pitch +/- (0.05 = 5%)
+   max: number;       // jarak maksimum terdengar (meter) untuk suara posisional; di luar itu tidak diputar
+@@ -25,20 +30,20 @@
+   step_tile: { files: ['step_tile_1', 'step_tile_2'], vol: 1, jitter: 0.08, max: 0, prio: 1, gap: 0.12 },
+   ambient: { files: ['ambient_loop'], vol: 1, jitter: 0, max: 0, prio: 3, loop: true },
+   buzz: { files: ['buzz_loop'], vol: 1, jitter: 0.02, max: 9, ref: 1.5, prio: 2, loop: true },
+-  distant: { files: ['distant_1', 'distant_2', 'distant_3'], vol: 0.55, jitter: 0.06, max: 30, ref: 4, prio: 3 },
+-  door_open: { files: ['door_open'], vol: 0.8, jitter: 0.07, max: 18, ref: 2, prio: 5, gap: 0.2 },
+-  door_close: { files: ['door_close'], vol: 0.9, jitter: 0.07, max: 18, ref: 2, prio: 5, gap: 0.2 },
++  distant: { files: ['distant_1', 'distant_2', 'distant_3', 'floor_creak'], vol: 0.55, jitter: 0.06, max: 30, ref: 4, prio: 3 },
++  door_open: { files: ['door_creak'], legacy: ['door_open'], vol: 0.55, jitter: 0.07, max: 18, ref: 2, prio: 5, gap: 0.2 },
++  door_close: { files: ['door_close_hit'], legacy: ['door_close'], vol: 0.9, jitter: 0.07, max: 18, ref: 2, prio: 5, gap: 0.2 },
+   door_locked: { files: ['door_locked'], vol: 0.7, jitter: 0.05, max: 10, ref: 2, prio: 6 },
+   key_pickup: { files: ['key_pickup'], vol: 0.7, jitter: 0.04, max: 0, prio: 8 },
+   item_pickup: { files: ['item_pickup'], vol: 0.6, jitter: 0.08, max: 0, prio: 6 },
+-  lock_unlock: { files: ['lock_unlock'], vol: 0.85, jitter: 0.03, max: 12, ref: 2, prio: 8 },
++  lock_unlock: { files: ['unlock_metal'], legacy: ['lock_unlock'], vol: 0.85, jitter: 0.03, max: 12, ref: 2, prio: 8 },
+   chain_fall: { files: ['chain_fall'], vol: 0.9, jitter: 0.03, max: 16, ref: 2, prio: 8 },
+-  drawer_open: { files: ['drawer_open'], vol: 0.6, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+-  drawer_close: { files: ['drawer_close'], vol: 0.65, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+-  cabinet_open: { files: ['cabinet_open'], vol: 0.6, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+-  cabinet_close: { files: ['cabinet_close'], vol: 0.7, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+-  locker_open: { files: ['locker_open'], vol: 0.6, jitter: 0.06, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+-  locker_close: { files: ['locker_close'], vol: 0.7, jitter: 0.06, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
++  drawer_open: { files: ['drawer_open_a', 'drawer_open_b'], legacy: ['drawer_open'], vol: 0.6, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
++  drawer_close: { files: ['drawer_close_a', 'drawer_close_b'], legacy: ['drawer_close'], vol: 0.65, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
++  cabinet_open: { files: ['cabinet_open_a'], legacy: ['cabinet_open'], vol: 0.6, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
++  cabinet_close: { files: ['cabinet_close_a'], legacy: ['cabinet_close'], vol: 0.7, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
++  locker_open: { files: ['locker_open_a'], legacy: ['locker_open'], vol: 0.6, jitter: 0.06, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
++  locker_close: { files: ['locker_close_a'], legacy: ['locker_close'], vol: 0.7, jitter: 0.06, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+   lid_open: { files: ['lid_open'], vol: 0.6, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+   lid_close: { files: ['lid_close'], vol: 0.7, jitter: 0.08, max: 12, ref: 1.5, prio: 4, gap: 0.15 },
+   search: { files: ['search'], vol: 0.5, jitter: 0.06, max: 10, ref: 1.5, prio: 4 },
+@@ -50,10 +55,16 @@
+   furniture_scrape: { files: ['furniture_scrape'], vol: 0.85, jitter: 0.06, max: 22, ref: 2.5, prio: 9 },
+   entity_whisper: { files: ['entity_whisper'], vol: 0.6, jitter: 0.05, max: 24, ref: 3, prio: 9 },
+   entity_steps: { files: ['entity_steps'], vol: 0.55, jitter: 0.04, max: 22, ref: 3, prio: 9 },
+-  heartbeat: { files: ['heartbeat'], vol: 0.6, jitter: 0.02, max: 0, prio: 5, gap: 0.25 },
+-  pant: { files: ['pant'], vol: 0.7, jitter: 0.03, max: 0, prio: 6, gap: 1.8 },
++  heartbeat: { files: HEART_CLIPS, legacy: ['heartbeat'], vol: 0.6, jitter: 0.02, max: 0, prio: 5, gap: 0.25 },
++  pant: { files: BREATH_CLIPS, legacy: ['pant'], vol: 0.5, jitter: 0.03, max: 0, prio: 6, gap: 1.8 },
+   rustle: { files: ['rustle'], vol: 0.55, jitter: 0.06, max: 8, ref: 1.5, prio: 4, gap: 0.3 },
+-  breath: { files: ['breath'], vol: 0.5, jitter: 0.04, max: 0, prio: 6, gap: 1 },
++  breath: { files: BREATH_CLIPS, legacy: ['breath'], vol: 0.45, jitter: 0.04, max: 0, prio: 6, gap: 1 },
++  step_walk: { files: WALK_CLIPS, legacy: ['step_carpet_1', 'step_carpet_2', 'step_carpet_3'], vol: 1, jitter: 0.04, max: 0, prio: 1, gap: 0.12 },
++  step_run: { files: RUN_CLIPS, legacy: ['step_tile_1', 'step_tile_2'], vol: 1, jitter: 0.04, max: 0, prio: 1, gap: 0.08 },
++  step_stairs: { files: STAIRS_CLIPS, legacy: ['step_tile_1', 'step_tile_2'], vol: 1, jitter: 0.04, max: 0, prio: 1, gap: 0.12 },
++  floor_creak: { files: ['floor_creak'], vol: 0.6, jitter: 0.05, max: 0, prio: 2, gap: 6 },
++  door_slam: { files: ['door_slam'], vol: 1, jitter: 0.04, max: 40, ref: 3, prio: 9 },
++  impact_slam: { files: ['impact_slam'], vol: 0.95, jitter: 0.04, max: 40, ref: 3, prio: 9 },
+ };
+ 
+ export const SFX_BASE = '/sfx/';
+--- a/lib/game/audio.ts
++++ b/lib/game/audio.ts
+@@ -1,10 +1,11 @@
+ // Sistem audio WebAudio ringan untuk HP: buffer di-decode sekali, panner 'equalpower' + atenuasi linear,
+ // batas jumlah suara aktif, throttle per jenis, variasi pitch & varian file.
+ import * as CFG from './config';
+-import { SFX, SFX_BASE, type SfxName } from './sfx';
++import { SFX, SFX_BASE, CLIPS, type SfxName } from './sfx';
++import type { SfxClip } from './sfxclips';
+ 
+ export interface Vec { x: number; y: number; z: number }
+-export interface PlayOpts { pos?: Vec; vol?: number; rate?: number }
++export interface PlayOpts { pos?: Vec; vol?: number; rate?: number; sync?: number } // sync: detik sampai momen visual (mis. pintu laci berhenti); suara ditunda agar 'benturannya' jatuh tepat di momen itu
+ export interface Handle { setPos(x: number, y: number, z: number): void; setGain(g: number): void; stop(): void }
+ const NULL_HANDLE: Handle = { setPos() {}, setGain() {}, stop() {} };
+ 
+@@ -18,7 +19,7 @@
+   private bufs = new Map<string, AudioBuffer>();
+   private voices = new Set<Voice>();
+   private lastPlay = new Map<string, number>();
+-  private lastVariant = new Map<string, number>();
++  private lastVariant = new Map<string, string>(); // varian terakhir per SFX (agar tidak berulang berurutan)
+   private ready = false;
+   private disposed = false;
+   private listener: Vec = { x: 0, y: 0, z: 0 };
+@@ -68,18 +69,23 @@
+   }
+ 
+   private async loadAll(): Promise<void> {
+-    const files = new Set<string>();
+-    Object.values(SFX).forEach((d) => d.files.forEach((f) => files.add(f)));
+-    const list = Array.from(files);
++    // nama varian (clip atau .wav) -> file sumber; satu file sumber hanya di-fetch & di-decode SEKALI walau dipakai banyak clip
++    const byFile = new Map<string, string[]>();
++    const want = (n: string) => { const f = CLIPS[n]?.file ?? n + '.wav'; const a = byFile.get(f); if (!a) byFile.set(f, [n]); else if (!a.includes(n)) a.push(n); };
++    Object.values(SFX).forEach((d) => { d.files.forEach(want); d.legacy?.forEach(want); });
++    const list = Array.from(byFile.keys());
+     for (let i = 0; i < list.length; i += 6) { // sedikit demi sedikit agar tidak membebani HP
+       if (this.disposed || !this.ctx) return; // di-dispose (restart/unmount) saat memuat: berhenti, jangan decode ke context tertutup
+       await Promise.all(list.slice(i, i + 6).map(async (f) => {
+         try {
+-          const r = await fetch(SFX_BASE + f + '.wav');
+-          if (!r.ok || this.disposed || !this.ctx) return;
++          const r = await fetch(SFX_BASE + f);
++          if (!r.ok || this.disposed || !this.ctx) { if (!r.ok) console.warn('SFX tidak ditemukan:', f); return; }
+           const ab = await r.arrayBuffer();
+           if (this.disposed || !this.ctx) return;
+-          this.bufs.set(f, await this.decode(ab));
++          const buf = await this.decode(ab);
++          if (this.disposed || !this.ctx) return;
++          // clip: iris bagian yang dipakai (mono, gain & fade dibakar) lalu buang buffer besarnya -> memori kecil & tanpa kerja saat dimainkan
++          for (const n of byFile.get(f)!) this.bufs.set(n, CLIPS[n] ? this.slice(buf, CLIPS[n]) : buf);
+         } catch (e) { console.warn('SFX gagal dimuat:', f); }
+       }));
+       if (this.disposed) return;
+@@ -87,6 +93,23 @@
+     this.ready = true;
+   }
+ 
++  /** Iris satu clip dari buffer hasil decode: mixdown mono, normalisasi (gain), fade-in/out agar tanpa klik. */
++  private slice(src: AudioBuffer, c: SfxClip): AudioBuffer {
++    const sr = src.sampleRate, a = Math.min(src.length - 1, Math.max(0, Math.floor(c.off * sr)));
++    const n = Math.max(1, Math.min(src.length - a, Math.floor(c.dur * sr)));
++    const out = this.ctx!.createBuffer(1, n, sr), d = out.getChannelData(0), ch = src.numberOfChannels;
++    for (let k = 0; k < ch; k++) { const s = src.getChannelData(k); for (let i = 0; i < n; i++) d[i] += s[a + i] / ch; }
++    const fi = Math.max(1, Math.floor(c.fi * sr)), fo = Math.max(1, Math.floor(c.fo * sr));
++    for (let i = 0; i < n; i++) {
++      let g = c.gain;
++      if (i < fi) g *= i / fi;
++      if (i >= n - fo) g *= Math.max(0, (n - 1 - i) / fo);
++      const v = d[i] * g, a = v < 0 ? -v : v;
++      d[i] = a <= 0.9 ? v : (v < 0 ? -1 : 1) * (0.9 + 0.1 * Math.tanh((a - 0.9) / 0.1)); // pembatas lembut: tidak pernah di atas 1,0 tanpa memotong keras
++    }
++    return out;
++  }
++
+   /** Posisi & arah pendengar (kamera). Dipanggil tiap frame; diperbarui ~20 Hz. */
+   setListener(x: number, y: number, z: number, yaw: number, dt: number): void {
+     this.listener.x = x; this.listener.y = y; this.listener.z = z;
+@@ -125,11 +148,16 @@
+     if (o.pos && def.max > 0 && this.dist(o.pos) > def.max) return null; // terlalu jauh -> tidak diputar
+     if (!this.makeRoom(def.prio, !!def.loop)) return null;
+ 
+-    let vi = Math.floor(Math.random() * def.files.length);
+-    if (def.files.length > 1 && vi === this.lastVariant.get(name)) vi = (vi + 1) % def.files.length;
+-    this.lastVariant.set(name, vi);
+-    const buf = this.bufs.get(def.files[vi]);
+-    if (!buf) return null;
++    // varian yang benar-benar termuat; bila semua varian baru gagal -> file .wav lama (cadangan)
++    let pool = def.files.filter((f) => this.bufs.has(f));
++    if (!pool.length && def.legacy) pool = def.legacy.filter((f) => this.bufs.has(f));
++    if (!pool.length) return null;
++    let vn = pool[Math.floor(Math.random() * pool.length)];
++    if (pool.length > 1 && vn === this.lastVariant.get(name)) vn = pool[(pool.indexOf(vn) + 1) % pool.length]; // jangan mengulang varian yang sama berturut-turut
++    this.lastVariant.set(name, vn);
++    const buf = this.bufs.get(vn)!;
++    const hit = CLIPS[vn]?.hit; // selaraskan 'benturan' clip dengan momen visual: tunda bila clip-nya lebih cepat dari animasi
++    const delay = o.sync && hit !== undefined ? Math.min(1.5, Math.max(0, o.sync - hit)) : 0;
+ 
+     const src = ctx.createBufferSource();
+     src.buffer = buf; src.loop = !!def.loop;
+@@ -160,7 +188,7 @@
+     };
+     src.onended = () => this.cleanup(v);
+     this.voices.add(v); this.lastPlay.set(name, now);
+-    src.start();
++    src.start(delay > 0 ? now + delay : 0);
+     return {
+       setPos: (x, y, z) => { if (v.panner) this.setPannerPos(v.panner, x, y, z); },
+       setGain: (g) => { try { v.gain.gain.value = v.base * g; } catch { /* abaikan */ } },
+--- a/lib/game/world.ts
++++ b/lib/game/world.ts
+@@ -39,7 +39,6 @@
+ };
+ const SKIP_OCCLUDER = /^(F\d_CeilingLights|ExitSign_|Roof)/;
+ const NO_CAST_MATS = new Set(['carpet', 'ceiling', 'light', 'exit_sign']); // lantai/plafon menerima bayangan tapi tidak perlu menjadi caster (hemat shadow pass)
+-const TILE_ROOMS = /^(kitchen|utilitas|svce|svcw|tech|server|lab|vault)$/;
+ 
+ interface PartRT {
+   obj: THREE.Object3D; hinge: boolean; p0: THREE.Vector3; q0: THREE.Quaternion;
+@@ -86,6 +85,7 @@
+   vis: LeafGeom;      // geometri daun tipis untuk cek sapuan terhadap pemain
+   pend: boolean;      // collision menunggu pemain keluar dari ambang (tidak menjebak)
+   closedSfx: boolean; // suara tutup sudah diputar untuk siklus ini
++  slam?: boolean;     // sedang dibanting menutup oleh event horor: cepat + suara bantingan keras
+ }
+ interface PickupRT { group: THREE.Group; taken: boolean; base: number; it: Interactable<GameCtx> }
+ interface LockRT { id: KeyId; group: THREE.Group; opened: boolean; fall: number; p0: THREE.Vector3; it: Interactable<GameCtx> }
+@@ -590,7 +590,7 @@
+     for (const g of rt.group) {
+       if (g.cs.want === want) continue;
+       g.cs.want = want; this.active.add(g);
+-      if (!played) { played = true; this.audio?.play((rt.sfx + (want ? '_open' : '_close')) as SfxName, { pos: { x: rt.ax, y: 0.9, z: rt.az } }); }
++      if (!played) { played = true; this.audio?.play((rt.sfx + (want ? '_open' : '_close')) as SfxName, { pos: { x: rt.ax, y: 0.9, z: rt.az }, sync: rt.openTime }); }
+     }
+   }
+ 
+@@ -703,7 +703,7 @@
+         prompt: () => (lever ? (f.target ? 'TURN OFF' : 'TURN ON') : f.target ? 'CLOSE' : 'OPEN'),
+         interact: () => {
+           f.target = f.target ? 0 : 1; this.ix.invalidate();
+-          this.audio?.play(f.sfx === 'click' ? 'flash_click' : (f.target ? 'cabinet_open' : 'cabinet_close'), { pos: pos() });
++          this.audio?.play(f.sfx === 'click' ? 'flash_click' : (f.target ? 'cabinet_open' : 'cabinet_close'), { pos: pos(), sync: f.sfx === 'click' ? undefined : f.time });
+         },
+       };
+       this.ix.register(f.it, objs.map((q) => q.obj));
+@@ -726,7 +726,9 @@
+   private stepDoor(d: DoorRT, dt: number, player: PlayerState) {
+     const near = Math.abs(player.y - levelY(d.d.level)) < 1.9;
+     if (d.t !== d.target) {
+-      const rate = dt / (d.d.openTime || 0.7);
++      if (d.target) d.slam = false; // dibuka lagi: batalkan banting
++      const base = d.d.openTime || 0.7; // buka lambat (selaras suara derit), tutup lebih cepat (selaras suara tutup), banting sangat cepat
++      const rate = dt / (d.target ? base * CFG.DOOR_OPEN_SLOW : d.slam ? CFG.DOOR_SLAM_SECONDS : base * CFG.DOOR_CLOSE_SCALE);
+       const nt = d.target ? Math.min(1, d.t + rate) : Math.max(0, d.t - rate);
+       // daun berhenti sebelum menyentuh pemain; lanjut otomatis begitu pemain menyingkir
+       if (!(near && sweepHitsPlayer(d.vis, ease(d.t), ease(nt), player.x, player.z, CFG.PLAYER_RADIUS + 0.02))) d.t = nt;
+@@ -744,7 +746,7 @@
+     if (d.t === 0 && d.target === 0 && !d.closedSfx) {
+       // pemain terlanjur berada di ambang saat pintu selesai menutup -> buka lagi (jangan sampai terjebak)
+       if (near && leafTouches(d.leaf, 0, player.x, player.z, CFG.PLAYER_RADIUS + 0.2)) { d.target = 1; return; }
+-      d.closedSfx = true; this.audio?.play('door_close', { pos: this.doorPos(d.d) });
++      d.closedSfx = true; this.audio?.play(d.slam ? 'door_slam' : 'door_close', { pos: this.doorPos(d.d), vol: d.slam ? 1 : undefined }); d.slam = false;
+     }
+   }
+ 
+@@ -1093,9 +1095,9 @@
+     this.ix.invalidate();
+     const pos = { x: rt.ax, y: 0.9, z: rt.az };
+     this.active.add(rt);
+-    if (act === 'close') { this.audio?.play((rt.sfx + '_close') as SfxName, { pos }); return; } // key yang belum diambil ikut tersembunyi di dalam
++    if (act === 'close') { this.audio?.play((rt.sfx + '_close') as SfxName, { pos, sync: rt.openTime }); return; } // key yang belum diambil ikut tersembunyi di dalam
+     rt.by = ctx;
+-    this.audio?.play((rt.sfx + '_open') as SfxName, { pos });
++    this.audio?.play((rt.sfx + '_open') as SfxName, { pos, sync: rt.openTime }); // benturan/kunci suara jatuh tepat saat animasi berhenti
+     if (rt.cs.searching) this.audio?.play('search', { pos });
+     this.maybeLockerScare(rt);
+   }
+@@ -1503,6 +1505,7 @@
+       case 'door': return this.evDoor(p);
+       case 'furniture': return this.evFurniture(p);
+       case 'entity': return this.evEntity(p);
++      case 'slam': return this.evSlam(p);
+     }
+   }
+ 
+@@ -1526,6 +1529,27 @@
+     return true;
+   }
+ 
++  /**
++   * Event bantingan pintu: pintu terbuka yang jauh dibanting menutup (animasi cepat + suara keras di posisi pintu itu);
++   * bila tidak ada pintu terbuka yang cocok, terdengar bantingan/benturan keras dari pintu lain yang jauh (suara saja).
++   * Jarak aman: tidak pernah di dekat pemain, tidak menutup pintu yang sedang dilewati, tidak menyentuh pintu terkunci/exit.
++   */
++  private evSlam(p: PlayerState): boolean {
++    const dist = (d: DoorRT) => Math.hypot(d.d.cx - p.x, d.d.cz - p.z);
++    const ok = (d: DoorRT) => d.d.level === p.level && dist(d) >= CFG.SLAM_MIN_DIST && dist(d) <= CFG.SLAM_MAX_DIST;
++    const open = this.doors.filter((d) => d.d.type === 'door' && ok(d) && d.target === 1 && d.t > 0.95);
++    if (open.length) {
++      const d = this.evRng.pick(open);
++      d.slam = true; d.target = 0; d.closedSfx = false; // stepDoor: tutup cepat lalu 'door_slam' saat menyentuh kusen
++      return true;
++    }
++    const far = this.doors.filter((d) => ok(d));
++    if (!far.length) return false;
++    const d = this.evRng.pick(far);
++    this.audio?.play(this.evRng.chance(0.5) ? 'door_slam' : 'impact_slam', { pos: this.doorPos(d.d) });
++    return true;
++  }
++
+   private closeEventDoor(d: DoorRT, tries: number) {
+     if (d.target !== 1) return; // pemain sudah menutupnya sendiri
+     const p = this.pl;
+@@ -1636,12 +1660,10 @@
+     if (this.ent) this.ent.visible = false;
+   }
+ 
+-  /** Jenis suara langkah menurut lantai: keramik/beton di bathroom & utility, selain itu karpet. */
+-  stepSound(p: PlayerState): 'step_tile' | 'step_carpet' {
+-    if (p.onStairs) return 'step_tile'; // permukaan tangga (beton): tidak ada SFX tangga khusus, pakai langkah keras
+-    if (p.level !== 0) return 'step_carpet';
+-    for (const r of this.md.rooms) if (r.level === p.level && p.x >= r.rect.minx && p.x <= r.rect.maxx && p.z >= r.rect.minz && p.z <= r.rect.maxz) return TILE_ROOMS.test(r.type) ? 'step_tile' : 'step_carpet';
+-    return 'step_carpet';
++  /** Jenis suara langkah menurut gerak: tangga, lari, atau jalan (rekaman langkah beton; jongkok memakai langkah jalan yang lebih pelan). */
++  stepSound(p: PlayerState, running = false): 'step_stairs' | 'step_run' | 'step_walk' {
++    if (p.onStairs) return 'step_stairs';
++    return running ? 'step_run' : 'step_walk';
+   }
+ 
+   /** Gerak pemain (tangga, pintu, furniture, dinding) — satu pintu masuk collision untuk PlayScene. */
+--- a/lib/game/events.ts
++++ b/lib/game/events.ts
+@@ -2,7 +2,7 @@
+ import type { Rng } from './rng';
+ import * as CFG from './config';
+ 
+-export type EventType = 'lights' | 'door' | 'furniture' | 'entity';
++export type EventType = 'lights' | 'door' | 'furniture' | 'entity' | 'slam';
+ 
+ export class EventScheduler {
+   private rng: Rng;
+--- a/lib/game/config.ts
++++ b/lib/game/config.ts
+@@ -80,7 +80,18 @@
+ export const EVENT_RETRY_MIN = 12;      // bila event gagal (kondisi tidak aman) coba lagi
+ export const EVENT_RETRY_MAX = 25;
+ export const EVENT_TYPE_COOLDOWN = 100; // jenis yang sama tidak diulang dalam rentang ini
+-export const EVENT_WEIGHTS = { lights: 3, door: 3, furniture: 2, entity: 2 };
++export const EVENT_WEIGHTS = { lights: 3, door: 3, furniture: 2, entity: 2, slam: 2 };
++export const SLAM_MIN_DIST = 7;        // event bantingan pintu: jarak minimum dari pemain (m)
++export const SLAM_MAX_DIST = 26;       // ...dan maksimum (masih terdengar jelas)
++export const DOOR_OPEN_SLOW = 3.4;     // pengali waktu buka pintu (0,7 dtk x 3,4 = ~2,4 dtk) agar selaras dengan suara derit pintu yang lambat
++export const DOOR_CLOSE_SCALE = 0.85;  // pengali waktu tutup pintu (~0,6 dtk) selaras suara tutup pintu
++export const DOOR_SLAM_SECONDS = 0.22; // pintu dibanting menutup oleh event
++export const FLOOR_CREAK_CHANCE = 0.035; // peluang decit papan lantai per langkah jalan (acak, jarang)
++export const STRIDE_WALK = 1.2;       // panjang langkah (m) -> cadence = kecepatan / panjang langkah: jalan ~1,8/dtk
++export const STRIDE_RUN = 1.2;        // lari ~3,3 langkah/dtk (kecepatan lari lebih tinggi, panjang langkah sama)
++export const STRIDE_CROUCH = 0.75;    // jongkok ~1,5/dtk
++export const STRIDE_STAIRS = 0.95;    // tangga ~1,8/dtk (kecepatan x STAIR_SPEED_MUL)
++export const FLOOR_CREAK_GAP = 25;       // jeda minimum antar decit (detik)
+ 
+ // ---- Audio ----
+ export const MASTER_VOLUME = 0.85;
+--- a/components/lobby/PlayScene.tsx
++++ b/components/lobby/PlayScene.tsx
+@@ -294,7 +294,7 @@
+     let raf = 0, last = performance.now(), eye = EYE, bobT = 0, lastPrompt: string | null = null;
+     let shadowOn = CFG.SHADOWS, shF = 0; const shP = new THREE.Vector3(), shQ = new THREE.Quaternion();
+     let pr = Math.min(window.devicePixelRatio || 1, 1.25), fpsT = 0, fpsN = 0; // resolusi adaptif: turun otomatis bila FPS rendah
+-    let wasHiding = false, hideFlash = false, lastHide: null | 'in' | 'out' = null, lastFxA = 0, lastFxK: 'locker' | 'bed' | null = null, hbT = 0, panT = 0, swayT = 0, paused = false, stride = 1.05, idleT = 0, stepAcc = 0, flickT = 0, flickR = 1, lastFl = 100, lastStam = 100, lastTired = false;
++    let wasHiding = false, hideFlash = false, lastHide: null | 'in' | 'out' = null, lastFxA = 0, lastFxK: 'locker' | 'bed' | null = null, hbT = 0, panT = 0, swayT = 0, paused = false, creakCd = 0, stride = 1.05, idleT = 0, stepAcc = 0, flickT = 0, flickR = 1, lastFl = 100, lastStam = 100, lastTired = false;
+     const draw = (t: number) => { if (post) post.render(r, scene, cam, t * 0.001); else r.render(scene, cam); };
+     const loop = (t: number) => {
+       raf = requestAnimationFrame(loop);
+@@ -362,9 +362,12 @@
+       if (playing) {
+         stepAcc += Math.hypot(player.x - ox, player.z - oz);
+         if (stepAcc >= stride) {
+-          stepAcc = 0; stride = (player.onStairs ? 0.62 : S.crouch ? 0.75 : running ? 1.4 : 1.05) * (0.92 + Math.random() * 0.16); // variasi kecil antar langkah
+-          // jalan: normal; lari: lebih keras & cepat (nada tinggi); jongkok: sangat pelan & dalam
+-          audio.play(world.stepSound(player), { vol: CFG.FOOTSTEP_VOLUME * (S.crouch ? 0.35 : running ? 1.5 : 1), rate: player.onStairs ? 0.9 : S.crouch ? 0.88 : running ? 1.1 : 1 });
++          // cadence per kondisi: jalan ~1,8 langkah/dtk, lari ~3,3/dtk (sesuai ritme rekaman), jongkok ~1,5/dtk, tangga ~1,8/dtk (jarak tempuh nyata / panjang langkah)
++          stepAcc = 0; stride = (player.onStairs ? CFG.STRIDE_STAIRS : S.crouch ? CFG.STRIDE_CROUCH : running ? CFG.STRIDE_RUN : CFG.STRIDE_WALK) * (0.94 + Math.random() * 0.12); // variasi kecil antar langkah
++          // jalan: normal; lari: lebih keras; jongkok: sangat pelan; tangga: langkah tangga. Pemilihan varian rekaman diacak tanpa pengulangan berurutan (AudioManager)
++          audio.play(world.stepSound(player, running), { vol: CFG.FOOTSTEP_VOLUME * (S.crouch ? 0.35 : running ? 1.5 : 1), rate: S.crouch ? 0.96 : 1 });
++          // decit papan lantai: jarang & acak, hanya saat berjalan (bukan lari/tangga)
++          if (!running && !player.onStairs && (creakCd -= 1) <= 0 && Math.random() < CFG.FLOOR_CREAK_CHANCE) { creakCd = Math.ceil(CFG.FLOOR_CREAK_GAP / 0.55); audio.play('floor_creak', { vol: S.crouch ? 0.5 : 1 }); }
+         }
+       }
+ 
+--- a/scripts/tsconfig.test.json
++++ b/scripts/tsconfig.test.json
+@@ -34,6 +34,8 @@
+     "../lib/game/swing.ts",
+     "../lib/game/chairfit.ts",
+     "../lib/game/opening.ts",
+-    "../lib/game/lightfx.ts"
++    "../lib/game/lightfx.ts",
++    "../lib/game/sfxclips.ts",
++    "../lib/game/audio.ts"
+   ]
+ }
+\ No newline at end of file
+--- a/scripts/run-test.sh
++++ b/scripts/run-test.sh
+@@ -12,3 +12,4 @@
+ node scripts/test-chair.js
+ node scripts/test-opening.js
+ node scripts/test-lightfx.js
++node scripts/test-sfx.js
+--- a/README.md
++++ b/README.md
+@@ -96,3 +96,10 @@
+ - Memakai sistem yang sudah ada: kamera & loop `PlayScene`, `AudioManager` (`setMuffle` = low-pass di rantai master + sfx `breath`/`heartbeat`), dan `.vignette` (lewat variabel CSS `--vg/--vs`). Logika waktu murni di `lib/game/opening.ts`.
+ - Matikan/atur di `config.ts`: `OPENING_ENABLED`, `OPENING_SECONDS`, `OPENING_BLUR_PX`, `MUFFLE_MIN_HZ`. `prefers-reduced-motion` = tanpa goyang kamera & blur separuh.
+ - Uji: `scripts/test-opening.js` (dijalankan oleh `npm run test:game`).
++
++## SFX dari repo Sound (file mp3)
++- Repo `kenza11-star/Sound` (folder `Lacidrawer`, `Lemaricabinet`, `Loker`, `Tanggalantai`: 14 file; 11 identik dengan file yang sudah dipakai, 3 baru) + 8 file mp3 tambahan = 22 mp3 di `public/sfx/` (file asli tidak diubah). `Tanggalantai/Walk.mp3` & `Run.mp3` disimpan sebagai `Tanggalantai_Walk.mp3` / `Tanggalantai_Run.mp3`. File yang muncul ganda di repo (`metal-door-open-02`, `metal-door-unlock-02` ada di `Lacidrawer` dan `Loker`; `wooden drawer close` = `growth-...part-1`; `metal locker creak` = `metal_locker_creak`) cukup satu salinan.
++- `lib/game/sfxclips.ts` (DIHASILKAN oleh `python3 scripts/gen-sfx-clips.py`, butuh ffmpeg+numpy+scipy) berisi potongan: waktu tiap langkah/benturan, gain (puncak -2 dBFS seperti SFX lama), fade, dan `hit` (momen benturan). `AudioManager` men-decode tiap file sekali, mengiris potongannya (mono, gain/fade dibakar, pembatas lembut) lalu membuang buffer besarnya -> cache kecil (~9 MB) dan tanpa delay saat dimainkan. File .wav lama tetap ada dan otomatis dipakai bila mp3 gagal dimuat (`legacy`).
++- Pemetaan: jalan = walking-on-concrete + `Walk.mp3` (16 varian); lari = soumages-running + `Run.mp3` (21 varian); tangga = footsteps-stairs-slow + concrete-footsteps-6752 (22 varian); napas berat = heavy-breathing; detak jantung = heartbeat ("lub-dub"); pintu buka = door-creak (animasi buka diperlambat ~2,4 dtk, `DOOR_OPEN_SLOW`), tutup = door-close-effect (~0,6 dtk); event horor acak (`slam` di events.ts/world.ts) = door-slam & impact-slam; decit lantai = floorboard-creak (jarang saat berjalan + variasi suara jauh); laci buka = desk-drawer-open-02 / desk-drawer-slide-02 (berhenti dengan ketukan lembut), laci tutup = growth (`wooden drawer close`) / desk-drawer-slide-01 (benturan keras di ujung); lemari buka = refrigerator-door-open-02, tutup = door-close-47; loker buka = metal-door-open-02, tutup = metal locker creak (berderit lalu klang), kunci metal = metal-door-unlock-02.
++- Varian dipilih acak tanpa mengulang file yang sama berturut-turut. Furniture memutar SFX di posisi objek yang berinteraksi; `PlayOpts.sync` menunda suara agar benturan/kunci jatuh tepat saat animasi berhenti. Cadence langkah = kecepatan / panjang langkah (`STRIDE_*` di config.ts): jalan ~1,8/dtk, lari ~3,3/dtk, jongkok ~1,5/dtk; volume jalan 1x, lari 1,5x, jongkok 0,35x.
++- Uji: `scripts/test-sfx.js` (dalam `npm run test:game`).
