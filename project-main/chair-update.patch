@@ -1,0 +1,153 @@
+--- a/lib/game/config.ts
++++ b/lib/game/config.ts
+@@ -16,6 +16,7 @@
+ 
+ // ---- Map / interaksi ----
+ export const MAP_URL = '/models/backrooms_full.glb'; // satu-satunya map utama
++export const CHAIR_URL = '/models/chair.glb'; // model kursi custom; bila gagal dimuat, kursi bawaan map tetap dipakai
+ export const LEVEL_Y = [0, 3.4]; // tinggi lantai per level: lantai 1 (y=0) dan lantai 2 (permukaan slab)
+ export const REACH = 2.4;          // jarak maksimum interaksi (meter)
+ export const PLAYER_RADIUS = 0.3;  // radius collision pemain (berdiri)
+--- a/lib/game/world.ts
++++ b/lib/game/world.ts
+@@ -5,6 +5,7 @@
+ import { extractMapData, measureFootprints, panelCentres, indexNodesByName, type MapData, type GltfJson, type DoorDesc } from './mapdata';
+ import { NavGrid, applyFootprints, swingBox, boxesOverlap, generateFurniture, generateBeds, BED_SIZE, pickFreeSpots, assignContents, auditPlacements, SEARCHABLE, type Placement, type BedPlacement, type Content, type FurnKind, type ContainerSlot } from './layout';
+ import { movePlayer, floorTarget, canStandAt, type StairDef } from './stairs';
++import { fitChair } from './chairfit';
+ import { applyPose, leafDist, leafTouches, sweepHitsPlayer, doorBlocksAt, ease, DOOR_REACH, swingPoints, type LeafGeom } from './door';
+ import { openLimit, partBox, partMatrix, partDist, type PartGeom } from './swing';
+ import { InteractionSystem, type Interactable } from './interaction';
+@@ -161,6 +162,8 @@
+   // environmental storytelling (dekor ringan; satu InstancedMesh per jenis, dibuat ulang tiap run)
+   private decorMeshes: THREE.InstancedMesh[] = [];
+   private batchGeos: THREE.BufferGeometry[] = [];
++  private chairGeos: THREE.BufferGeometry[] = []; // geometri kursi custom (dibuat di swapChairs; material ikut dibuang lewat root)
++  private chairMat: THREE.MeshStandardMaterial | null = null;
+   private decorOwn: THREE.BufferGeometry[] = [];
+   private decorOwn2: THREE.Material[] = [];
+   private decorSrc: Partial<Record<'stain' | 'box' | 'pipe' | 'exit', { geo: THREE.BufferGeometry; mat: THREE.Material }>> = {};
+@@ -197,18 +200,21 @@
+ 
+   // ------------------------------------------------------------------ load
+   static async load(scene: THREE.Scene, onProgress?: (p: number) => void): Promise<GameWorld> {
++    // kursi custom dimuat paralel dengan map; bila gagal (file hilang/rusak) kursi bawaan map tetap dipakai
++    const chairP: Promise<any> = new Promise((res) => { new GLTFLoader().load(CFG.CHAIR_URL, res, undefined, () => res(null)); });
+     const gltf: any = await new Promise((res, rej) => {
+       new GLTFLoader().load(CFG.MAP_URL, res, (e: ProgressEvent) => { if (e.total) onProgress?.(e.loaded / e.total); }, rej);
+     });
++    const chairG = await chairP;
+     const json = gltf.parser.json as GltfJson;
+     applyFootprints(measureFootprints(json, TEMPLATE)); // footprint furniture acak = bounds nyata GLB (termasuk bagian yang menonjol)
+     const md = extractMapData(json);
+     const w = new GameWorld(scene, gltf.scene, md);
+-    w.build(gltf, json);
++    w.build(gltf, json, chairG);
+     return w;
+   }
+ 
+-  private build(gltf: any, json: GltfJson) {
++  private build(gltf: any, json: GltfJson, chairG: any = null) {
+     const { scene, root, md, cw } = this;
+     // peta node-glTF -> objek three
+     // AKAR MASALAH pintu/locker/laci "tidak bisa dibuka": GLTFLoader (three 0.164) membagi SATU objek `associations` ke semua klon mesh yang
+@@ -227,6 +233,7 @@
+     }
+     // extras `interact` turunan (normalizeMap) disalin ke userData objek three (GLTFLoader hanya menyalin extras asli)
+     json.nodes.forEach((n: any, i) => { const it = n.extras?.interact; const o = this.nodeObj.get(i); if (it && o) (o.userData as any).interact = it; });
++    this.swapChairs(json, chairG); // kursi bawaan map -> model custom (collision tidak berubah; lihat chairfit.ts)
+     // template furniture acak: salinan utuh sebelum batching statis
+     for (const k of Object.keys(TEMPLATE) as FurnKind[]) { const o = this.nodeByName.get(TEMPLATE[k]); if (o) { const c = o.clone(true); c.visible = true; this.templates[k] = c; } }
+     scene.add(root);
+@@ -356,6 +363,51 @@
+     root.traverse((o) => { if (!animated.has(o) && !(o as any).isLight) o.matrixAutoUpdate = false; });
+   }
+ 
++  // ------------------------------------------------------------------ kursi custom
++  /**
++   * Mengganti isi semua node `Chair_*` (extras.type 'Chair') dengan model dari chair.glb. Posisi/rotasi node dipertahankan, jadi kursi
++   * tetap di tempat dan menghadap arah yang sama. Collision TIDAK diubah: model diskalakan seragam agar footprint-nya selalu berada
++   * di dalam kotak collision kursi bawaan (hx,hz dari `md.colliders`) -> pemain tidak pernah bisa menembus bagian kursi mana pun.
++   * Semua kursi memakai 1 geometri + 1 material, lalu ikut batching statis (mobile).
++   */
++  private swapChairs(json: GltfJson, g: any) {
++    if (!g?.scene) return;
++    try {
++      g.scene.updateMatrixWorld(true);
++      let src: THREE.Mesh | null = null;
++      g.scene.traverse((o: any) => { if (!src && o.isMesh && o.geometry?.attributes?.position && !Array.isArray(o.material)) src = o as THREE.Mesh; });
++      if (!src) return;
++      const mesh = src as THREE.Mesh;
++      const base = mesh.geometry.clone(); base.applyMatrix4(mesh.matrixWorld); // bake transform node Sketchfab (rotasi Z-up -> Y-up)
++      base.computeBoundingBox();
++      const bb = base.boundingBox!;
++      const mat = mesh.material as THREE.MeshStandardMaterial;
++      const cache = new Map<string, THREE.BufferGeometry>();
++      let n = 0;
++      json.nodes.forEach((nd: any, i: number) => {
++        if (nd.extras?.type !== 'Chair') return;
++        const o: any = this.nodeObj.get(i), col = this.md.colliders.find((c) => c.idx === i);
++        if (!o || !col) return;
++        const h: number = nd.extras.size?.[1] ?? 1.03;
++        const key = `${col.obb.hx.toFixed(3)}|${col.obb.hz.toFixed(3)}|${h}`;
++        let geo = cache.get(key);
++        if (!geo) {
++          const f = fitChair([bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.max.y, bb.max.z], { w: col.obb.hx * 2, d: col.obb.hz * 2, h });
++          geo = base.clone();
++          geo.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(f.tx, f.ty, f.tz), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw), new THREE.Vector3(f.scale, f.scale, f.scale)));
++          geo.computeBoundingBox(); geo.computeBoundingSphere();
++          cache.set(key, geo); this.chairGeos.push(geo);
++        }
++        if (o.isMesh) { o.geometry = geo; o.material = mat; }
++        else { for (const c of [...o.children]) o.remove(c); const m = new THREE.Mesh(geo, mat); m.name = 'ChairMesh'; o.add(m); }
++        n++;
++      });
++      base.dispose(); mesh.geometry.dispose();
++      if (n) this.chairMat = mat; else mat.dispose();
++      if (dev) console.info(`[game] kursi custom terpasang: ${n}`);
++    } catch (e) { if (dev) console.warn('[game] kursi custom gagal dipasang; kursi bawaan dipakai', e); }
++  }
++
+   // ------------------------------------------------------------------ optimasi mobile: batching mesh statis
+   /**
+    * Menggabungkan mesh yang tidak pernah bergerak/diinteraksi (struktur, furniture tanpa laci/pintu, buku, rak, kursi) per
+@@ -1539,6 +1591,8 @@
+     this.keyGeos.forEach((g) => g.dispose()); Object.values(this.keyMats).forEach((m) => m.dispose());
+     this.hwGeos.forEach((g) => g.dispose()); this.hwMats.forEach((m) => m.dispose());
+     this.chainMesh?.dispose();
++    this.chairGeos.forEach((g) => g.dispose()); this.chairGeos = [];
++    if (this.chairMat) { const cm: any = this.chairMat; for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) cm[k]?.dispose(); cm.dispose(); this.chairMat = null; }
+     this.ix.clear();
+   }
+ }
+--- a/scripts/tsconfig.test.json
++++ b/scripts/tsconfig.test.json
+@@ -31,6 +31,7 @@
+     "../lib/game/roomstate.ts",
+     "../lib/game/stairs.ts",
+     "../lib/game/door.ts",
+-    "../lib/game/swing.ts"
++    "../lib/game/swing.ts",
++    "../lib/game/chairfit.ts"
+   ]
+ }
+\ No newline at end of file
+--- a/scripts/run-test.sh
++++ b/scripts/run-test.sh
+@@ -9,3 +9,4 @@
+ node scripts/test-game.js
+ node scripts/test-polish.js
+ node scripts/test-hide.js
++node scripts/test-chair.js
+--- a/README.md
++++ b/README.md
+@@ -84,3 +84,9 @@
+ - **Detak jantung**: SFX baru (`heartbeat.wav`, lub-dub dengan dentuman dada), tempo & volume naik saat stamina menipis dan paling cepat saat habis.
+ - **Napas kelelahan**: `pant.wav` berulang selama stamina habis (selain `breath.wav` saat baru habis). `rustle.wav` untuk merangkak.
+ - Semua SFX dibuat prosedural oleh `python3 scripts/gen-body-sfx.py` (numpy saja, bebas lisensi). Uji: `npm run test:game` (termasuk `scripts/test-hide.js`: penempatan kasur 200 seed).
++
++## Kursi custom (chair.glb)
++- Semua kursi bawaan map (node `extras.type = "Chair"`, 38 buah) diganti model `public/models/chair.glb` saat load (`GameWorld.swapChairs` di `world.ts`, URL di `config.ts` -> `CHAIR_URL`). File map tidak diubah; bila `chair.glb` hilang/rusak, kursi bawaan map dipakai otomatis.
++- **Anti-tembus**: collision kursi TIDAK diganti. Model diskalakan seragam (`lib/game/chairfit.ts`) agar footprint-nya selalu di dalam kotak collision kursi bawaan (0,5 x 0,5 m) dan tingginya 1,03 m; pivot di tengah, kaki di lantai, sandaran di belakang (-Z lokal) seperti kursi lama. Jadi pemain tidak bisa masuk ke bagian kursi mana pun.
++- Performa HP: 1 geometri + 1 material untuk semua kursi, ikut batching statis (`batchStatic`). Tekstur chair.glb diperkecil 1024 -> 512 px (geometri tidak diubah), 2,4 MB -> 0,7 MB.
++- Uji: `npm run test:game` (termasuk `scripts/test-chair.js`: footprint di dalam kotak collision untuk 38 kursi, orientasi, dan ~9.700 gerakan pemain dari 24 arah memakai fungsi gerak game asli).
