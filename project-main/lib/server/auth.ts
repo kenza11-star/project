@@ -14,6 +14,8 @@ export async function requireUser(req: Request): Promise<AuthedUser> {
     return { uid: t.uid, email: t.email ?? null, claims: t as unknown as Record<string, unknown> };
   } catch (e) {
     if (e instanceof HttpError) throw e; // mis. 503 not_configured
+    const x = e as { code?: string; name?: string; message?: string };
+    console.error('[auth] verifikasi token gagal:', x.code || x.name || 'unknown', String(x.message || '').slice(0, 160)); // log server saja; tidak memuat token/kunci
     throw new HttpError(401, 'unauthorized');
   }
 }
