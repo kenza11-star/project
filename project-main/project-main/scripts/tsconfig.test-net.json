@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "outDir": "../.tmp-net",
+    "module": "commonjs",
+    "target": "es2020",
+    "skipLibCheck": true,
+    "strict": false,
+    "rootDir": "../lib/net",
+    "lib": [
+      "es2020",
+      "dom"
+    ]
+  },
+  "files": [
+    "../lib/net/protocol.ts",
+    "../lib/net/interp.ts",
+    "../lib/net/roomclient.ts",
+    "../lib/net/worldsync.ts",
+    "../lib/net/hybridTransport.ts"
+  ]
+}
