@@ -1,0 +1,256 @@
+-- =====================================================================================================
+-- MIGRASI v2 MULTIPLAYER  (jalankan SEKALI di Supabase Dashboard -> SQL Editor, SETELAH schema.sql lama)
+-- Idempoten: aman dijalankan ulang (create or replace / if not exists). Isi yang sama juga ditambahkan di ujung schema.sql
+-- supaya proyek baru cukup menjalankan schema.sql.
+--
+-- Isi:
+--   1. game_invites          : undangan main (dikirim ke backend, dibaca penerima, status valid) -- sebelumnya hanya state lokal browser.
+--   2. room_view/room_state  : snapshot room dari SERVER (service_role) -- tidak bergantung pada RLS/JWT klien.
+--   3. relay_sync            : relai posisi + event dunia lewat Postgres (cadangan bila Supabase Realtime private gagal tersambung).
+--   4. join_room / start_room: tolak pemain BARU saat room sudah berjalan; start divalidasi server (>=2 pemain aktif).
+--   5. cleanup_rooms         : ikut membersihkan tabel baru.
+-- =====================================================================================================
+
+alter table public.room_members add column if not exists relay_until timestamptz;
+
+-- ---------- 1. undangan ----------
+create table if not exists public.game_invites (
+  id           uuid primary key default gen_random_uuid(),
+  from_id      text not null references public.profiles(id) on delete cascade,
+  to_id        text not null references public.profiles(id) on delete cascade,
+  room_id      uuid not null references public.rooms(id) on delete cascade,
+  status       text not null default 'pending' check (status in ('pending','accepted','declined','expired')),
+  created_at   timestamptz not null default now(),
+  responded_at timestamptz,
+  check (from_id <> to_id)
+);
+create index if not exists game_invites_to   on public.game_invites (to_id, status, created_at desc);
+create index if not exists game_invites_from on public.game_invites (from_id, created_at desc);
+alter table public.game_invites enable row level security;                      -- tanpa policy: hanya service_role (lewat API server)
+revoke all on public.game_invites from public, anon, authenticated;
+
+-- ---------- 2. snapshot room dari server ----------
+-- "online" = heartbeat < 30 dtk. Anggota dengan heartbeat < 120 dtk masih memegang kursi (tampil sebagai offline).
+create or replace function public.room_view(p_room uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'room_id', r.id, 'code', r.code, 'status', r.status, 'host_id', r.host_id, 'max_players', r.max_players, 'seed', r.seed,
+    'members', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', m.user_id, 'slot', m.slot, 'name', p.display_name, 'host', m.user_id = r.host_id,
+               'online', m.last_seen > now() - interval '30 seconds') order by m.slot)
+        from public.room_members m join public.profiles p on p.id = m.user_id
+       where m.room_id = r.id and m.left_at is null and m.last_seen > now() - interval '120 seconds'), '[]'::jsonb))
+  from public.rooms r where r.id = p_room;
+$$;
+
+-- Dipanggil polling ruang tunggu (juga berfungsi sebagai heartbeat). Hanya anggota aktif.
+create or replace function public.room_state(p_uid text, p_room uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  update public.room_members set last_seen = now() where room_id = p_room and user_id = p_uid and left_at is null;
+  get diagnostics n = row_count;
+  if n = 0 then raise exception 'not_member'; end if;
+  return public.room_view(p_room) || jsonb_build_object('active', true);
+end $$;
+
+-- ---------- join / start ----------
+create or replace function public.join_room(p_uid text, p_code text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare r public.rooms; v_slot int; v_active int;
+begin
+  perform 1 from public.profiles where id = p_uid;
+  if not found then raise exception 'not_member'; end if;
+  select * into r from public.rooms where code = p_code for update;          -- kunci baris room: pendaftaran paralel diserialkan
+  if not found then raise exception 'room_not_found'; end if;
+  if r.status = 'closed' then raise exception 'room_closed'; end if;
+  -- Saat MENUNGGU: lepas kursi yang sudah keluar / tak ada heartbeat > 120 dtk. Saat BERJALAN kursi tidak pernah dilepas (reconnect aman).
+  if r.status = 'waiting' then
+    delete from public.room_members
+     where room_id = r.id and user_id <> p_uid and (left_at is not null or last_seen < now() - interval '120 seconds');
+  end if;
+  select slot into v_slot from public.room_members where room_id = r.id and user_id = p_uid;
+  if found then                                                                -- reconnect / gabung ulang: slot yang sama
+    update public.room_members set left_at = null, last_seen = now() where room_id = r.id and user_id = p_uid;
+  else
+    if r.status = 'playing' then raise exception 'room_started'; end if;       -- pemain BARU tidak boleh masuk ke game yang sudah berjalan
+    select count(*) into v_active from public.room_members where room_id = r.id;
+    if v_active >= r.max_players then raise exception 'room_full'; end if;
+    select min(s) into v_slot from generate_series(0, r.max_players - 1) s
+     where s not in (select slot from public.room_members where room_id = r.id);
+    insert into public.room_members(room_id, user_id, slot) values (r.id, p_uid, v_slot);
+  end if;
+  -- satu room aktif per pemain: keluar dari room lain (dan tutup bila kosong)
+  update public.room_members set left_at = now() where user_id = p_uid and left_at is null and room_id <> r.id;
+  return public.room_json(r, v_slot);
+end $$;
+
+create or replace function public.start_room(p_uid text, p_room uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare r public.rooms; v_active int;
+begin
+  select * into r from public.rooms where id = p_room for update;
+  if not found then raise exception 'room_not_found'; end if;
+  if r.host_id <> p_uid then raise exception 'not_host'; end if;
+  if r.status = 'closed' then raise exception 'room_closed'; end if;
+  if r.status = 'playing' then                                                 -- idempoten (tekan dua kali / retry jaringan)
+    return jsonb_build_object('status', 'playing', 'players', (select count(*) from public.room_members where room_id = p_room and left_at is null));
+  end if;
+  update public.room_members set last_seen = now() where room_id = p_room and user_id = p_uid and left_at is null;
+  select count(*) into v_active from public.room_members
+   where room_id = p_room and left_at is null and last_seen > now() - interval '30 seconds';
+  if v_active < 2 then raise exception 'not_ready'; end if;                    -- validasi di SERVER: minimal 2 pemain benar-benar aktif
+  update public.rooms set status = 'playing', started_at = now() where id = p_room;
+  return jsonb_build_object('status', 'playing', 'players', v_active);
+end $$;
+
+-- ---------- 3. relai Postgres (posisi + event dunia) ----------
+create table if not exists public.room_pos (
+  room_id    uuid not null references public.rooms(id) on delete cascade,
+  user_id    text not null references public.profiles(id) on delete cascade,
+  state      jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
+create table if not exists public.room_world (
+  id         bigint generated always as identity primary key,
+  room_id    uuid not null references public.rooms(id) on delete cascade,
+  user_id    text not null references public.profiles(id) on delete cascade,
+  msg        jsonb not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists room_world_room on public.room_world (room_id, id);
+alter table public.room_pos   enable row level security;
+alter table public.room_world enable row level security;
+revoke all on public.room_pos, public.room_world from public, anon, authenticated;
+
+-- Satu round-trip: simpan state/event milik pemanggil, tandai hidup (heartbeat), kembalikan state room + posisi pemain lain + event baru.
+--   p_need  = pemanggil TIDAK menerima data lewat Realtime -> minta pengirim lain memakai relai cepat.
+--   p_since = id event terakhir yang sudah diterima (-1 = baru masuk: ambil sebagian ekor log saja).
+create or replace function public.relay_sync(p_uid text, p_room uuid, p_state jsonb, p_world jsonb, p_since bigint, p_need boolean) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare n int; v_states jsonb; v_world jsonb; v_cursor bigint; v_max bigint; v_need boolean; w jsonb; v_since bigint := coalesce(p_since, -1);
+begin
+  update public.room_members
+     set last_seen = now(), relay_until = case when p_need then now() + interval '6 seconds' else null end
+   where room_id = p_room and user_id = p_uid and left_at is null;
+  get diagnostics n = row_count;
+  if n = 0 then raise exception 'not_member'; end if;
+
+  if p_state is not null and jsonb_typeof(p_state) = 'object' then
+    insert into public.room_pos(room_id, user_id, state, updated_at) values (p_room, p_uid, p_state, now())
+    on conflict (room_id, user_id) do update set state = excluded.state, updated_at = now();
+  end if;
+  if p_world is not null and jsonb_typeof(p_world) = 'array' then
+    for w in select * from jsonb_array_elements(p_world) limit 12 loop
+      insert into public.room_world(room_id, user_id, msg) values (p_room, p_uid, w);
+    end loop;
+  end if;
+
+  select coalesce(max(id), 0) into v_max from public.room_world where room_id = p_room;
+  if v_since < 0 then v_since := greatest(0, v_max - 60); end if;
+  select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'from', x.user_id, 'msg', x.msg) order by x.id), '[]'::jsonb), coalesce(max(x.id), v_since)
+    into v_world, v_cursor
+    from (select id, user_id, msg from public.room_world
+           where room_id = p_room and id > v_since and user_id <> p_uid order by id limit 100) x;
+  if jsonb_array_length(v_world) = 0 then v_cursor := greatest(v_since, v_max); end if;
+
+  select coalesce(jsonb_object_agg(user_id, state), '{}'::jsonb) into v_states
+    from public.room_pos where room_id = p_room and user_id <> p_uid and updated_at > now() - interval '15 seconds';
+  select exists (select 1 from public.room_members where room_id = p_room and user_id <> p_uid and left_at is null and relay_until > now()) into v_need;
+
+  if random() < 0.03 then delete from public.room_world where room_id = p_room and created_at < now() - interval '3 minutes'; end if;
+  return public.room_view(p_room) || jsonb_build_object('active', true, 'states', v_states, 'world', v_world, 'cursor', v_cursor, 'need_relay', v_need);
+end $$;
+
+-- ---------- 1b. fungsi undangan ----------
+create or replace function public.send_invite(p_uid text, p_to_public_id text, p_room uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v_to text; r public.rooms; v_active int; inv_id uuid;
+begin
+  select id into v_to from public.profiles where public_id = p_to_public_id;
+  if v_to is null then raise exception 'room_not_found'; end if;                -- dipetakan di API: "UID tidak ditemukan"
+  if v_to = p_uid then raise exception 'invalid'; end if;
+  if not exists (select 1 from public.friendships where a = least(p_uid, v_to) and b = greatest(p_uid, v_to) and status = 'accepted') then
+    raise exception 'not_friend';
+  end if;
+  select * into r from public.rooms where id = p_room for update;
+  if not found then raise exception 'room_not_found'; end if;
+  if r.status = 'closed' then raise exception 'room_closed'; end if;
+  if r.status = 'playing' then raise exception 'room_started'; end if;
+  if not exists (select 1 from public.room_members where room_id = p_room and user_id = p_uid and left_at is null) then raise exception 'not_member'; end if;
+  if exists (select 1 from public.room_members where room_id = p_room and user_id = v_to and left_at is null and last_seen > now() - interval '120 seconds') then
+    return jsonb_build_object('status', 'already_in_room');
+  end if;
+  select count(*) into v_active from public.room_members where room_id = p_room and left_at is null and last_seen > now() - interval '120 seconds';
+  if v_active >= r.max_players then raise exception 'room_full'; end if;
+  update public.game_invites set status = 'expired' where from_id = p_uid and to_id = v_to and status = 'pending';
+  insert into public.game_invites(from_id, to_id, room_id) values (p_uid, v_to, p_room) returning id into inv_id;
+  return jsonb_build_object('status', 'pending', 'id', inv_id);
+end $$;
+
+-- incoming: undangan menunggu untuk pemanggil (<5 mnt, room masih menunggu). outgoing: undangan yang pemanggil kirim + statusnya.
+create or replace function public.list_invites(p_uid text) returns jsonb
+language sql security definer set search_path = public as $$
+  select jsonb_build_object(
+    'incoming', coalesce((
+      select jsonb_agg(jsonb_build_object('id', i.id, 'uid', p.public_id, 'name', p.display_name, 'created_at', i.created_at) order by i.created_at desc)
+        from public.game_invites i join public.profiles p on p.id = i.from_id join public.rooms r on r.id = i.room_id
+       where i.to_id = p_uid and i.status = 'pending' and i.created_at > now() - interval '5 minutes' and r.status = 'waiting'), '[]'::jsonb),
+    'outgoing', coalesce((
+      select jsonb_agg(jsonb_build_object('id', i.id, 'uid', p.public_id, 'status', i.status))
+        from public.game_invites i join public.profiles p on p.id = i.to_id join public.rooms r on r.id = i.room_id
+       where i.from_id = p_uid and i.status <> 'expired' and i.created_at > now() - interval '5 minutes' and r.status <> 'closed'), '[]'::jsonb));
+$$;
+
+-- Terima = masuk room (join_room di transaksi yang sama: gagal masuk -> undangan tetap pending). Tolak = tandai declined.
+create or replace function public.respond_invite(p_uid text, p_invite uuid, p_accept boolean) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare i public.game_invites; r public.rooms; v_room jsonb;
+begin
+  select * into i from public.game_invites where id = p_invite and to_id = p_uid for update;
+  if not found or i.status <> 'pending' then raise exception 'invite_gone'; end if;
+  select * into r from public.rooms where id = i.room_id;
+  if not found or r.status <> 'waiting' or i.created_at < now() - interval '5 minutes' then
+    update public.game_invites set status = 'expired', responded_at = now() where id = p_invite;
+    return jsonb_build_object('status', 'expired');                              -- tidak raise: perubahan 'expired' harus tersimpan
+  end if;
+  if p_accept then
+    v_room := public.join_room(p_uid, r.code);
+    update public.game_invites set status = 'accepted', responded_at = now() where id = p_invite;
+    return jsonb_build_object('status', 'accepted', 'room', v_room);
+  end if;
+  update public.game_invites set status = 'declined', responded_at = now() where id = p_invite;
+  return jsonb_build_object('status', 'declined');
+end $$;
+
+-- ---------- pembersihan ----------
+create or replace function public.cleanup_rooms() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v_closed int; v_deleted int; v_rates int; v_inv int;
+begin
+  update public.room_members set left_at = now() where left_at is null and last_seen < now() - interval '5 minutes';
+  update public.rooms r set status = 'closed'
+   where status <> 'closed' and not exists (select 1 from public.room_members m where m.room_id = r.id and m.left_at is null);
+  get diagnostics v_closed = row_count;
+  update public.rooms r set host_id = (select m.user_id from public.room_members m where m.room_id = r.id and m.left_at is null order by m.slot limit 1)
+   where status <> 'closed' and not exists (select 1 from public.room_members m where m.room_id = r.id and m.user_id = r.host_id and m.left_at is null);
+  update public.rooms set status = 'closed' where status = 'waiting' and created_at < now() - interval '3 hours';
+  delete from public.rooms where status = 'closed' and created_at < now() - interval '1 day';
+  get diagnostics v_deleted = row_count;
+  delete from public.rate_limits where window_start < now() - interval '1 day';
+  get diagnostics v_rates = row_count;
+  delete from public.game_invites where created_at < now() - interval '1 day';
+  get diagnostics v_inv = row_count;
+  delete from public.room_world where created_at < now() - interval '1 hour';
+  return jsonb_build_object('closed', v_closed, 'deleted', v_deleted, 'rate_rows_purged', v_rates, 'invites_purged', v_inv);
+end $$;
+
+-- ---------- hak eksekusi ----------
+revoke all on function public.room_view(uuid), public.room_state(text, uuid), public.relay_sync(text, uuid, jsonb, jsonb, bigint, boolean),
+  public.send_invite(text, text, uuid), public.list_invites(text), public.respond_invite(text, uuid, boolean),
+  public.join_room(text, text), public.start_room(text, uuid), public.cleanup_rooms() from public, anon, authenticated;
+grant execute on function public.room_view(uuid), public.room_state(text, uuid), public.relay_sync(text, uuid, jsonb, jsonb, bigint, boolean),
+  public.send_invite(text, text, uuid), public.list_invites(text), public.respond_invite(text, uuid, boolean),
+  public.join_room(text, text), public.start_room(text, uuid), public.cleanup_rooms() to service_role;
