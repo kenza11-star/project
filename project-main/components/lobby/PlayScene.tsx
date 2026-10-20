@@ -587,6 +587,7 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
         const caught = S.status === 'dead';   // tertangkap/diseret: posisi tetap dikirim agar pemain lain melihat korban dibawa monster; cg = jangan ditangkap lagi
         if (playing || caught) net.client.setLocal({ x: player.x, y: player.y, z: player.z, yaw: pos.yaw, pitch: pos.pitch, gait: caught ? (dragMode === 'moving' ? 1 : 0) : netGait, crouch: S.crouch || caught, hide: !!world.hiding, ...(caught ? { cg: true } : {}), level: player.level, model: 'default' });
       }
+      if (S.status === 'play') audio.startMusic();   // musik latar: mulai sekali begitu gameplay berjalan (guard di AudioManager; berhenti saat audio.dispose() ketika kembali ke menu)
       if (paused !== gate.muteAudio) { paused = gate.muteAudio; if (S.status === 'play') { if (paused) audio.suspend(); else audio.unlock(); } } // audio diam hanya saat pause solo (freeze)
       // PAUSE SOLO: seluruh simulasi berhenti (world.update: musuh/SCP/event/timer/pintu/lampu, gerak, senter, stamina, opening/scare fx).
       // Hanya render ulang frame terakhir; `last` tetap diperbarui di atas sehingga tidak ada lonjakan dt saat RESUME.

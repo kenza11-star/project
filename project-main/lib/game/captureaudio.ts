@@ -3,23 +3,21 @@
 // (tanpa setTimeout -> tidak ada timer yatim; restart/unmount cukup clear()). Pemutaran sebenarnya (panner 3D + falloff) dilakukan AudioManager.
 import * as CFG from './config';
 import { SFX } from './sfx';
-import { JS_SCREAM_AT, JS_IMPACT_AT, JS_HUM_AT, JS_SCREAM_MID_AT, JS_SCREAM_HI_AT } from './monsterfx';
+import { JS_SCREAM_AT, JS_IMPACT_AT, JS_PLAYER_SCREAM_AT } from './monsterfx';
 import type { CatchInfo } from './monstersync';
 
-export type CaptureCueName = 'capture_hum' | 'capture_scream_lo' | 'capture_scream_mid' | 'capture_scream' | 'capture_impact';
+export type CaptureCueName = 'monster_scream' | 'player_scream' | 'capture_hum' | 'capture_scream_lo' | 'capture_scream_mid' | 'capture_scream' | 'capture_impact';
 /** rate = pengali kecepatan putar (nada); kosong = 1. */
 export interface CaptureCue { name: CaptureCueName; pos: { x: number; y: number; z: number }; vol: number; rate?: number }
 export interface CaptureListener { x: number; z: number; level: number }
 /** scheduled = dijadwalkan; dup = kejadian sama sudah diproses; cooldown = korban sama terlalu cepat; spam = kejadian lain terlalu rapat; far = di luar jangkauan; nopos = lokasi tak diketahui; off = fitur mati. */
 export type CaptureResult = 'scheduled' | 'dup' | 'cooldown' | 'spam' | 'far' | 'nopos' | 'off';
 interface Pending extends CaptureCue { at: number }
-/** Susunan lapisan per tangkapan, urut waktu: dengung rendah -> teriakan rendah -> sedang -> tinggi (puncak) -> benturan. Volume & nada NAIK bertahap sampai benturan. Tiap lapisan hanya diputar bila pendengar dalam jangkauannya (SFX[name].max). */
-const LAYERS: ReadonlyArray<{ name: CaptureCueName; at: number; vol: number; rate: number }> = [
-  { name: 'capture_hum', at: JS_HUM_AT, vol: 0.4, rate: 0.4 },
-  { name: 'capture_scream_lo', at: JS_SCREAM_AT, vol: 0.45, rate: 0.7 },
-  { name: 'capture_scream_mid', at: JS_SCREAM_MID_AT, vol: 0.7, rate: 1 },
-  { name: 'capture_scream', at: JS_SCREAM_HI_AT, vol: 1, rate: 1.3 },
-  { name: 'capture_impact', at: JS_IMPACT_AT, vol: 1, rate: 1 },
+/** Susunan teriakan per tangkapan: SATU teriakan monster lalu SATU teriakan James (berurutan, tidak tumpang tindih), lalu benturan. Pemain lain: spasial (capture_scream_mid = monster, capture_scream = James, falloff jarak). Korban sendiri: non-posisional (monster_scream, player_scream; `own`). capture_hum & capture_scream_lo sengaja TIDAK dijadwalkan (di-mute: lapisan sintetis lama bertabrakan dengan teriakan asli); definisinya tetap ada di sfx.ts. */
+const LAYERS: ReadonlyArray<{ name: CaptureCueName; own: CaptureCueName; at: number; vol: number; rate: number }> = [
+  { name: 'capture_scream_mid', own: 'monster_scream', at: JS_SCREAM_AT, vol: 1, rate: 1 },
+  { name: 'capture_scream', own: 'player_scream', at: JS_PLAYER_SCREAM_AT, vol: 1, rate: 1 },
+  { name: 'capture_impact', own: 'capture_impact', at: JS_IMPACT_AT, vol: 1, rate: 1 },
 ];
 
 const SEEN_TTL = 60;
@@ -45,7 +43,7 @@ export class CaptureAudio {
     const d = Math.hypot(x - l.x, z - l.z, ey - (ly + 1.6)), floor = lvl === l.level ? 1 : CFG.CAPTURE_AUDIO_OTHER_FLOOR_VOL;
     const pos = { x, y: ey, z };
     const cues: Pending[] = [];
-    for (const L of LAYERS) if (self || d <= SFX[L.name].max) cues.push({ name: L.name, pos, vol: L.vol * (self ? 1 : floor), rate: L.rate, at: now + L.at });
+    for (const L of LAYERS) if (self || d <= SFX[L.name].max) cues.push({ name: self ? L.own : L.name, pos, vol: L.vol * (self ? 1 : floor), rate: L.rate, at: now + L.at });
     if (!cues.length) return 'far';
     this.lastVictim.set(ev.id, now); this.lastEvent = now; for (const c of cues) this.pend.push(c);
     return 'scheduled';

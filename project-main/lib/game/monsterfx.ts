@@ -55,6 +55,8 @@ export const JS_FACE_DIST = 0.7, JS_FACE_ABOVE = 0.12;   // wajah mendekat sampa
 /** Waktu (detik sejak tangkapan) teriakan & benturan tangan. Dipakai bersama oleh timeline jumpscare korban dan audio tangkapan spasial (captureaudio.ts) agar semua pemain mendengar urutan yang sama. */
 export const JS_SCREAM_AT = 0.4, JS_IMPACT_AT = 0.95;
 /** Lapisan audio tangkapan (captureaudio.ts), semuanya jatuh SEBELUM benturan: dengung rendah mulai lebih awal; teriakan naik bertahap rendah -> sedang -> tinggi (JS_SCREAM_AT = tahap rendah); lalu benturan di JS_IMPACT_AT. */
+/** Teriakan player (james_scream) masuk saat teriakan monster (mulai JS_SCREAM_AT, ~2 dtk audible) sudah mereda -> tidak saling menutupi. */
+export const JS_PLAYER_SCREAM_AT = 2.0;
 export const JS_HUM_AT = 0.05, JS_SCREAM_MID_AT = 0.58, JS_SCREAM_HI_AT = 0.76;
 
 /** Pingsan (jumpscare faint 0..1, lalu fase diseret): peredam audio naik sampai ~0,9 (suara teredam, jauh). */

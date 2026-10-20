@@ -19,12 +19,13 @@ let fails = 0, passes = 0;
 const ok = (c, m) => { if (c) passes++; else { fails++; console.log('  GAGAL:', m); } };
 const section = (t) => console.log('\n== ' + t);
 const near = (a, b, e) => Math.abs(a - b) <= e;
-const NL = 5, FULL = 'capture_hum,capture_scream_lo,capture_scream_mid,capture_scream,capture_impact';   // lapisan per tangkapan, urut waktu
+const SELF = 'monster_scream,capture_impact,player_scream', NL = 3, FULL = 'capture_scream_mid,capture_impact,capture_scream';   // per tangkapan (urut waktu): teriakan monster -> benturan -> teriakan James; hum & scream_lo di-mute   // lapisan per tangkapan, urut waktu
 
 section('Aset: memakai ulang file yang benar-benar ada (tanpa nama karangan)');
 {
   const sc = SFX.capture_scream, im = SFX.capture_impact;
-  ok(JSON.stringify(sc.files) === '["monster_scream"]' && JSON.stringify(im.files) === '["impact_slam"]', 'capture_scream <- monster_scream, capture_impact <- clip impact_slam (nama sama dengan SFX/clip yang sudah ada)');
+  ok(JSON.stringify(sc.files) === '["james_scream"]' && JSON.stringify(SFX.capture_scream_mid.files) === '["monster_jumpscare"]' && JSON.stringify(SFX.monster_scream.files) === '["monster_jumpscare"]' && JSON.stringify(SFX.player_scream.files) === '["james_scream"]' && JSON.stringify(im.files) === '["impact_slam"]', 'capture_scream <- james_scream, capture_scream_mid/monster_scream <- monster_jumpscare, player_scream <- james_scream, capture_impact <- impact_slam');
+  ok(['monster_jumpscare', 'james_scream'].every((n) => CLIPS[n] && fs.existsSync(path.join(PUB, 'sfx', CLIPS[n].file)) && CLIPS[n].off + CLIPS[n].dur <= SRC_DUR[CLIPS[n].file] + 1e-3), 'clip monster_jumpscare & james_scream ada & di dalam file sumber');
   const wav = path.join(PUB, 'sfx', 'monster_scream.wav'), b = fs.readFileSync(wav);
   ok(fs.existsSync(wav) && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WAVE', 'public/sfx/monster_scream.wav ada & berformat WAV');
   const sr = b.readUInt32LE(24), dur = (b.length - 44) / b.readUInt32LE(28);
@@ -32,7 +33,7 @@ section('Aset: memakai ulang file yang benar-benar ada (tanpa nama karangan)');
   ok(CLIPS.impact_slam && fs.existsSync(path.join(PUB, 'sfx', CLIPS.impact_slam.file)) && CLIPS.impact_slam.off + CLIPS.impact_slam.dur <= SRC_DUR[CLIPS.impact_slam.file] + 1e-3, `clip impact_slam (${CLIPS.impact_slam.file}) ada & di dalam file sumber`);
   ok(sc.max > 0 && im.max > 0 && sc.ref > 0 && im.ref > 0 && sc.ref < sc.max && im.ref < im.max, `keduanya POSISIONAL dengan falloff (scream ref ${sc.ref}->max ${sc.max} m, impact ref ${im.ref}->max ${im.max} m); max>0 = tidak pernah global`);
   ok(sc.prio >= 9 && im.prio >= 9 && sc.gap > 0 && im.gap > 0, 'prioritas tinggi (tidak digusur suara kecil) + gap anti-dobel di perangkat');
-  const before = fs.readdirSync(path.join(PUB, 'sfx')).length; ok(before === 61, `tidak menambah/menghapus file audio (public/sfx tetap 61 file, sekarang ${before})`);
+  const before = fs.readdirSync(path.join(PUB, 'sfx')).length; ok(before === 64, `jumlah file audio (public/sfx: 61 lama + monster_jumpscare, james_scream, bgm_horror = 64 file, sekarang ${before})`);
 }
 
 section('Protokol: lokasi kejadian opsional, ketat, kompatibel pesan lama');
@@ -52,27 +53,25 @@ section('CaptureAudio: jadwal, sekali per kejadian, jangkauan, anti-spam');
   const play = (a, secs, dt = 1 / 60) => { const got = []; let t = 0; for (let i = 0; i < Math.round(secs / dt); i++) { t += dt; for (const c of a.update(dt)) got.push({ t, ...c, pos: { ...c.pos } }); } return got; };
   let a = new CaptureAudio(); ok(a.accept(ev('1:1:B', 'B', 5, 0), 'me', L) === 'scheduled', 'dekat -> dijadwalkan');
   let got = play(a, 3);
-  ok(got.map((c) => c.name).join() === FULL, 'tepat 1 lapisan tiap jenis: dengung -> teriakan rendah -> sedang -> tinggi -> benturan');
+  ok(got.map((c) => c.name).join() === FULL, 'tepat 1 teriakan monster, 1 benturan, 1 teriakan James (urut waktu)');
   const G = Object.fromEntries(got.map((c) => [c.name, c]));
-  ok(near(G.capture_scream_lo.t, FX.JS_SCREAM_AT, 0.03) && near(G.capture_impact.t, FX.JS_IMPACT_AT, 0.03) && near(G.capture_hum.t, FX.JS_HUM_AT, 0.03) && near(G.capture_scream_mid.t, FX.JS_SCREAM_MID_AT, 0.03) && near(G.capture_scream.t, FX.JS_SCREAM_HI_AT, 0.03), 'timeline: teriakan mulai di JS_SCREAM_AT & benturan di JS_IMPACT_AT (sama dengan jumpscare korban), tahap lain di antaranya');
-  ok(got.every((c, i) => i === 0 || c.t >= got[i - 1].t) && FX.JS_HUM_AT < FX.JS_SCREAM_AT && FX.JS_SCREAM_AT < FX.JS_SCREAM_MID_AT && FX.JS_SCREAM_MID_AT < FX.JS_SCREAM_HI_AT && FX.JS_SCREAM_HI_AT < FX.JS_IMPACT_AT, 'semua lapisan jatuh sebelum/tepat pada benturan, urutan waktu menaik');
-  ok(G.capture_scream_lo.vol < G.capture_scream_mid.vol && G.capture_scream_mid.vol < G.capture_scream.vol && G.capture_hum.vol < G.capture_scream_lo.vol && G.capture_impact.vol >= G.capture_scream.vol, 'volume NAIK bertahap sampai benturan (dengung < rendah < sedang < tinggi <= benturan)');
-  ok(G.capture_hum.rate < G.capture_scream_lo.rate && G.capture_scream_lo.rate < G.capture_scream_mid.rate && G.capture_scream_mid.rate < G.capture_scream.rate && got.every((c) => c.rate > 0), 'nada naik bertahap: dengung rendah, teriakan rendah -> tinggi');
+  ok(near(G.capture_scream_mid.t, FX.JS_SCREAM_AT, 0.03) && near(G.capture_impact.t, FX.JS_IMPACT_AT, 0.03) && near(G.capture_scream.t, FX.JS_PLAYER_SCREAM_AT, 0.03), 'timeline: teriakan monster di JS_SCREAM_AT, benturan di JS_IMPACT_AT, teriakan James di JS_PLAYER_SCREAM_AT');
+  ok(got.every((c, i) => i === 0 || c.t >= got[i - 1].t) && FX.JS_SCREAM_AT < FX.JS_IMPACT_AT && FX.JS_PLAYER_SCREAM_AT - FX.JS_SCREAM_AT >= 1.5 && !got.some((c) => c.name === 'capture_hum' || c.name === 'capture_scream_lo'), 'urutan waktu menaik; tepat 1 teriakan monster + 1 teriakan James, terpisah >= 1,5 dtk (tidak tumpang tindih); hum & scream_lo di-mute');
   ok(got.every((c) => c.pos.x === 5 && c.pos.z === 0 && near(c.pos.y, CFG.LEVEL_Y[1] + CFG.CAPTURE_AUDIO_Y, 1e-9)), 'suara di LOKASI kejadian (bukan posisi pendengar), tinggi = lantai 2 + tinggi kepala');
   ok(G.capture_scream.vol === 1 && G.capture_impact.vol === 1, 'pendengar lain: volume puncak sama dengan korban pada lantai yang sama (kekerasan diatur falloff jarak engine)');
   for (let i = 0; i < 20; i++) a.accept(ev('1:1:B', 'B', 5, 0), 'me', L); ok(play(a, 3).length === 0, '20x pesan duplikat (kunci sama) -> tidak ada suara lagi');
   ok(a.accept(ev('1:1:B', 'B', 5, 0), 'me', L) === 'dup', 'hasil accept = dup');
   // jangkauan
-  a = new CaptureAudio(); const r = (d) => { const b = new CaptureAudio(); return { res: b.accept(ev('k', 'B', d, 0), 'me', L), got: play(b, 2) }; };
+  a = new CaptureAudio(); const r = (d) => { const b = new CaptureAudio(); return { res: b.accept(ev('k', 'B', d, 0), 'me', L), got: play(b, 3) }; };
   ok(r(SFX.capture_scream.max - 1).got.map((c) => c.name).join() === 'capture_scream', `${SFX.capture_scream.max - 1} m: hanya teriakan (benturan jangkauannya ${SFX.capture_impact.max} m)`);
-  ok(r(SFX.capture_impact.max - 1).got.map((c) => c.name).join() === 'capture_scream_lo,capture_scream_mid,capture_scream,capture_impact', `${SFX.capture_impact.max - 1} m: dengung (jangkauan ${SFX.capture_hum.max} m) tidak terdengar; teriakan bertahap + benturan terdengar`);
-  ok(r(SFX.capture_hum.max - 1).got.map((c) => c.name).join() === FULL && r(5).got.map((c) => c.name).join() === FULL, 'dekat: semua lapisan; jangkauan tiap lapisan mengikuti SFX[name].max (spasial, tidak ada yang global)');
+  ok(r(SFX.capture_impact.max - 1).got.map((c) => c.name).join() === 'capture_scream_mid,capture_impact,capture_scream', `${SFX.capture_impact.max - 1} m: teriakan monster + benturan + teriakan James terdengar`);
+  ok(r(SFX.capture_scream_mid.max - 1).got.map((c) => c.name).join() === 'capture_scream_mid,capture_scream' && r(5).got.map((c) => c.name).join() === FULL, 'dekat: semua lapisan; jangkauan tiap lapisan mengikuti SFX[name].max (spasial, tidak ada yang global)');
   ok(r(SFX.capture_scream.max + 2).res === 'far' && r(SFX.capture_scream.max + 2).got.length === 0, `${SFX.capture_scream.max + 2} m: di luar jangkauan -> tidak dijadwalkan sama sekali`);
   // lantai lain
-  const f = new CaptureAudio(); f.accept(ev('f', 'B', 3, 0, 0), 'me', L); const fg = play(f, 2); ok(fg.length === NL && near(fg[3].vol, CFG.CAPTURE_AUDIO_OTHER_FLOOR_VOL, 1e-9) && near(fg[4].vol, CFG.CAPTURE_AUDIO_OTHER_FLOOR_VOL, 1e-9) && fg[0].pos.y < 2, 'lantai lain: lebih pelan (suara tembus lantai), sumber tetap di lantainya');
+  const f = new CaptureAudio(); f.accept(ev('f', 'B', 3, 0, 0), 'me', L); const fg = play(f, 3); ok(fg.length === NL && fg.every((c) => near(c.vol, CFG.CAPTURE_AUDIO_OTHER_FLOOR_VOL, 1e-9)) && fg[0].pos.y < 2, 'lantai lain: lebih pelan (suara tembus lantai), sumber tetap di lantainya');
   // korban sendiri
-  const v = new CaptureAudio(); ok(v.accept(ev('v', 'me', 0.5, 0.5), 'me', L) === 'scheduled' && play(v, 2).length === NL, 'korban mendengar tangkapannya sendiri (satu jalur yang sama, semua lapisan sekali)');
-  const v2 = new CaptureAudio(); ok(v2.accept(ev('v', 'me', NaN, NaN), 'me', { x: 7, z: 8, level: 1 }) === 'scheduled', 'lokasi tak diketahui: korban tetap mendengar (di posisinya)'); const vg = play(v2, 2); ok(vg.length === NL && vg[0].pos.x === 7 && vg[0].pos.z === 8, 'lokasi cadangan korban = posisinya sendiri');
+  const v = new CaptureAudio(); ok(v.accept(ev('v', 'me', 0.5, 0.5), 'me', L) === 'scheduled' && play(v, 3).length === NL, 'korban mendengar tangkapannya sendiri (satu jalur yang sama, semua lapisan sekali)');
+  const v2 = new CaptureAudio(); ok(v2.accept(ev('v', 'me', NaN, NaN), 'me', { x: 7, z: 8, level: 1 }) === 'scheduled', 'lokasi tak diketahui: korban tetap mendengar (di posisinya)'); const vg = play(v2, 3); ok(vg.length === NL && vg[0].pos.x === 7 && vg[0].pos.z === 8, 'lokasi cadangan korban = posisinya sendiri');
   ok(new CaptureAudio().accept(ev('n', 'B', NaN, NaN), 'me', L) === 'nopos', 'pemain lain + lokasi tak diketahui: tidak diputar (tidak mengarang posisi)');
   // anti-spam
   const s = new CaptureAudio(); ok(s.accept(ev('a', 'B', 2, 0), 'me', L) === 'scheduled', 'kejadian 1'); play(s, 0.2);
@@ -87,7 +86,7 @@ section('CaptureAudio: jadwal, sekali per kejadian, jangkauan, anti-spam');
   const c = new CaptureAudio(); c.accept(ev('z', 'B', 2, 0), 'me', L); c.clear(); ok(play(c, 3).length === 0 && c.pending === 0, 'clear() (restart/unmount) membatalkan yang terjadwal');
   ok(c.accept(ev('z', 'B', 2, 0), 'me', L) === 'scheduled', 'clear() juga melupakan kunci lama (run baru, epoch/seq mulai dari awal)');
   const late = new CaptureAudio(); late.accept(ev('l', 'B', 2, 0), 'me', L); late.update(CFG.CAPTURE_AUDIO_LATE_DROP + 3); ok(late.update(0.01).length === 0 && late.pending === 0, 'tab di-background lama: suara basi dibuang, bukan diputar telat');
-  const t30 = (() => { const q = new CaptureAudio(); q.accept(ev('q', 'B', 2, 0), 'me', L); return play(q, 2, 1 / 30).map((x) => x.t); })(), t144 = (() => { const q = new CaptureAudio(); q.accept(ev('q', 'B', 2, 0), 'me', L); return play(q, 2, 1 / 144).map((x) => x.t); })();
+  const t30 = (() => { const q = new CaptureAudio(); q.accept(ev('q', 'B', 2, 0), 'me', L); return play(q, 3, 1 / 30).map((x) => x.t); })(), t144 = (() => { const q = new CaptureAudio(); q.accept(ev('q', 'B', 2, 0), 'me', L); return play(q, 3, 1 / 144).map((x) => x.t); })();
   ok(t30.length === NL && t144.length === NL && t30.every((t, i) => near(t, t144[i], 0.04)), 'waktu sama pada 30 dan 144 FPS');
   const z = new CaptureAudio(); z.accept(ev('y', 'B', 2, 0), 'me', L); ok(z.update(0).length === 0 && z.update(-1).length === 0, 'dt 0 / negatif tidak memutar apa pun');
   const off = CFG.CAPTURE_AUDIO_ENABLED; ok(off === true, 'CAPTURE_AUDIO_ENABLED = true secara bawaan');
@@ -132,15 +131,15 @@ section('Jaringan + SIM asli + peta asli: 5 klien, sekali per kejadian, lokasi s
   ok(near(Math.hypot(L0.x - P.x, L0.z - P.z), 0, CFG.MONSTER_CATCH_RADIUS + 0.2) || Math.hypot(L0.x - P.x, L0.z - P.z) < 4, 'lokasi = tempat monster menangkap (dekat korban)');
   ok(B.selfCatch === 1 && A.selfCatch + C.selfCatch + D.selfCatch + E.selfCatch === 0, 'jumpscare (onCatchSelf) tetap hanya untuk korban');
   const names = (id) => cuesLog[id].map((c) => c.name).join();
-  ok(names('B') === FULL, 'korban: semua lapisan tepat sekali (satu jalur, tanpa dobel)');
+  ok(names('B') === SELF, 'korban: semua lapisan tepat sekali (satu jalur, tanpa dobel)');
   ok(names('C') === FULL, 'pemain dekat (5 m, lantai sama): mendengar semua lapisan');
-  ok(names('A') === 'capture_scream_mid,capture_scream', `otoritas non-korban di 30 m: hanya teriakan sedang+tinggi (benturan ${SFX.capture_impact.max} m, dengung ${SFX.capture_hum.max} m) -> otoritas ikut mendengar, bukan hanya korban`);
+  ok(names('A') === 'capture_scream_mid,capture_scream', `otoritas non-korban di 30 m: hanya teriakan monster+James (benturan ${SFX.capture_impact.max} m) -> otoritas ikut mendengar, bukan hanya korban`);
   ok(names('D') === '' && D.results[0] === 'far', 'pemain jauh (60 m): tidak ada suara (tidak dijadwalkan)');
   ok(names('E') === FULL && cuesLog.E[0].vol < cuesLog.C[0].vol, 'pemain di lantai bawah tepat di bawah: terdengar, lebih pelan');
   ok(all.every((c) => cuesLog[c.id].every((q) => near(q.pos.x, L0.x, 0.011) && near(q.pos.z, L0.z, 0.011))), 'semua suara berada di lokasi kejadian (3D), tidak ada yang tanpa posisi (= tidak ada suara global)');
-  const cc = cuesLog.C, tOf = (id, n) => cuesLog[id].find((q) => q.name === n).t, rel = (tOf('C', 'capture_scream_lo') - C.onCatch[0].t) / 1000, rel2 = (tOf('C', 'capture_impact') - C.onCatch[0].t) / 1000;
+  const cc = cuesLog.C, tOf = (id, n) => cuesLog[id].find((q) => q.name === n).t, rel = (tOf('C', 'capture_scream_mid') - C.onCatch[0].t) / 1000, rel2 = (tOf('C', 'capture_impact') - C.onCatch[0].t) / 1000;
   ok(near(rel, FX.JS_SCREAM_AT, 0.08) && near(rel2, FX.JS_IMPACT_AT, 0.08), `urutan sama dengan jumpscare: teriakan +${rel.toFixed(2)}s, benturan +${rel2.toFixed(2)}s dari penerimaan`);
-  const spread = Math.max(...['B', 'C', 'A', 'E'].map((id) => tOf(id, 'capture_scream'))) - Math.min(...['B', 'C', 'A', 'E'].map((id) => tOf(id, 'capture_scream'))); ok(spread <= 120, `sinkron antar klien: selisih teriakan ${spread.toFixed(0)} ms (latensi jaringan simulasi 60 ms)`);
+  const spread = Math.max(...['B', 'C', 'A', 'E'].map((id) => tOf(id, id === 'B' ? 'player_scream' : 'capture_scream'))) - Math.min(...['B', 'C', 'A', 'E'].map((id) => tOf(id, id === 'B' ? 'player_scream' : 'capture_scream'))); ok(spread <= 120, `sinkron antar klien: selisih teriakan ${spread.toFixed(0)} ms (latensi jaringan simulasi 60 ms)`);
   // tidak ada pemutaran ulang
   const n0 = all.map((c) => cuesLog[c.id].length).join(); for (let i = 0; i < 30 * 15; i++) frame(); ok(all.map((c) => cuesLog[c.id].length).join() === n0 && all.every((c) => c.onCatch.length === 1), '15 dtk berikutnya (monster menyeret): tidak ada suara/kejadian tambahan');
   // duplikat & pemalsuan
@@ -171,7 +170,7 @@ section('Solo (tanpa jaringan): satu kejadian, korban mendengar sekali');
   ctl.onCatch = (e) => { n++; last = e; res.push(cap.accept(e, 'me', { x: 4, z: -1, level: 1 })); }; ctl.onCatchSelf = () => { self++; };
   const me = { id: 'me', x: 4, z: -1, level: 1, gait: 'run', crouch: false, hidden: false, grace: 0, caught: false };
   const cues = []; for (let i = 0; i < 240; i++) { nowMs += 16.7; ctl.update(1 / 60, me, []); for (const c of cap.update(1 / 60)) cues.push(c.name); }
-  ok(n === 1 && self === 1 && res[0] === 'scheduled' && cues.join() === FULL, 'solo: onCatch 1x, onCatchSelf 1x, semua lapisan sekali');
+  ok(n === 1 && self === 1 && res[0] === 'scheduled' && cues.join() === SELF, 'solo: onCatch 1x, onCatchSelf 1x, semua lapisan sekali');
   ok(last && last.x === 4.2 && last.z === -1.5 && last.level === 1 && /^1:1:me$/.test(last.key), `lokasi = posisi monster saat menangkap, kunci ${last && last.key}`);
 }
 

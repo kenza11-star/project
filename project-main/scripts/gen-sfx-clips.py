@@ -19,7 +19,10 @@ F = dict(
   dr_open='desk-drawer-open-02.mp3', dr_slide='desk-drawer-slide-01.mp3', dr_close='growth-84fc4bc4938dcf852562e065-part-1-v1.mp3',
   cb_close='door-close-47.mp3', cb_open='refrigerator-door-open-02.mp3', lk_open='metal-door-open-02.mp3', lk_creak='metal_locker_creak.mp3', lk_unlock='metal-door-unlock-02.mp3',
   # tambahan dari repo Sound (folder Tanggalantai & Lacidrawer)
-  walk2='Tanggalantai_Walk.mp3', run2='Tanggalantai_Run.mp3', dr_slide2='desk-drawer-slide-02.mp3')
+  walk2='Tanggalantai_Walk.mp3', run2='Tanggalantai_Run.mp3', dr_slide2='desk-drawer-slide-02.mp3',
+  # teriakan jumpscare (monster) & tangkapan (James)
+  mon_scream='monster_jumpscare.mp3', james='james_scream.mp3',
+  bgm='bgm_horror.mp3')
 _cache = {}
 def load(key):
     if key not in _cache:
@@ -94,6 +97,8 @@ add('door_creak', 'creak', 0.10, 2.70, fi=0.05, fo=0.45)               # buka: l
 add('door_close_hit', 'dclose', 0.04, 0.50, fo=0.08, hit=refine('dclose', 0.21))
 add('door_slam', 'slam', 0.20, 1.96, fo=0.3, hit=refine('slam', 1.35))   # event horor
 add('impact_slam', 'impact', 0.00, 2.00, fo=0.3, hit=refine('impact', 1.4))  # event horor
+add('monster_jumpscare', 'mon_scream', 0.30, 2.40, fi=0.01, fo=0.3)   # teriakan monster: mulai setelah ~0,1 dtk senyap awal file
+add('james_scream', 'james', 0.00, 2.60, fi=0.25, fo=0.7)   # teriakan player: fade-in lambat, dimulai saat teriakan monster mereda (JS_PLAYER_SCREAM_AT)
 add('floor_creak', 'floor', 0.18, 0.60, fi=0.02, fo=0.15)
 # ---- furniture: 'hit' = momen benturan/kunci; potongan dipangkas supaya hit jatuh sekitar pre detik setelah mulai (selaras animasi 0,5 dtk)
 def furn(name, key, est, pre, post, fo=0.12, **kw):
@@ -108,11 +113,13 @@ furn('locker_open_a', 'lk_open', 0.40, 0.40, 0.70)
 furn('locker_close_a', 'lk_creak', 2.03, 0.50, 0.35)  # metal locker creak: berderit lalu 'klang' saat menutup
 furn('unlock_metal', 'lk_unlock', 0.08, 0.08, 0.75)
 
+# musik latar (loop mulus): bagian stabil 6..68 dtk file (awal/akhir file senyap); xf = crossfade ekor->kepala yang dibakar saat load (AudioManager.slice) -> titik loop tanpa klik/jeda. Tanpa normalisasi puncak (gain 1): level diatur SFX.music.vol
+clips['bgm_horror'] = dict(file=F['bgm'], off=6.0, dur=62.0, gain=1.0, fi=0, fo=0, xf=5.0)
 def ts_obj(c): return '{ ' + ', '.join(f"{k}: {json.dumps(v)}" for k, v in c.items() if k not in ('peak_db', 'raw_peak')) + ' }'
 lines = ['// DIHASILKAN oleh scripts/gen-sfx-clips.py — jangan diedit manual (jalankan ulang skripnya).',
          '// Potongan (clip) dari file audio di public/sfx: off/dur (detik pada file sumber), gain (normalisasi puncak ke -2 dBFS), fi/fo (fade),',
          '// hit (detik dari awal potongan sampai momen benturan/kunci; dipakai untuk menyelaraskan suara dengan animasi).',
-         "export interface SfxClip { file: string; off: number; dur: number; gain: number; fi: number; fo: number; hit?: number }",
+         "export interface SfxClip { file: string; off: number; dur: number; gain: number; fi: number; fo: number; hit?: number; xf?: number }",
          'export const CLIPS: Record<string, SfxClip> = {']
 for n, c in clips.items(): lines.append(f"  {n}: {ts_obj(c)},")
 lines.append('};'); lines.append('')

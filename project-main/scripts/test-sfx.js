@@ -33,7 +33,7 @@ section('Data: semua varian & clip valid');
   // 19 file mp3 yang diminta semuanya dipakai
   const mp3 = fs.readdirSync(path.join(PUB, 'sfx')).filter((f) => f.endsWith('.mp3'));
   const used = new Set(Object.values(CLIPS).map((c) => c.file));
-  ok(mp3.length === 22 && mp3.every((f) => used.has(f)), `ke-22 file mp3 (19 kiriman + 3 baru dari repo Sound) dipakai oleh clip (${mp3.length} file, tak terpakai: ${mp3.filter((f) => !used.has(f)).join(', ') || '-'})`);
+  ok(mp3.length === 25 && mp3.every((f) => used.has(f)), `ke-25 file mp3 (+ monster_jumpscare, james_scream, bgm_horror) dipakai oleh clip (${mp3.length} file, tak terpakai: ${mp3.filter((f) => !used.has(f)).join(', ') || '-'})`);
 }
 section('Pemetaan fungsi -> file (sesuai permintaan)');
 {
@@ -147,6 +147,7 @@ const warn = console.warn; console.warn = () => {};
   // iris clip: panjang, mono, gain & fade dibakar
   let badSlice = 0;
   for (const [n, c] of Object.entries(CLIPS)) {
+    if (c.xf) { const bx = am.bufs.get(n); if (!bx || bx.numberOfChannels !== 1 || Math.abs(bx.length - Math.round((c.dur - c.xf) * 44100)) > 2) badSlice++; continue; }   // loop mulus: dicek terpisah di bawah
     const b = am.bufs.get(n); if (!b || b.numberOfChannels !== 1 || Math.abs(b.length - Math.round(c.dur * 44100)) > 2) { badSlice++; continue; }
     const lim = (v) => (v <= 0.9 ? v : 0.9 + 0.1 * Math.tanh((v - 0.9) / 0.1)); // pembatas lembut yang sama dengan AudioManager.slice
     const d = b.getChannelData(0), mid = d[Math.floor(b.length / 2)], want = lim(0.5 * c.gain);
@@ -154,6 +155,26 @@ const warn = console.warn; console.warn = () => {};
     if (Math.abs(d[0]) > 0.02 || Math.abs(d[b.length - 1]) > 0.02 || (fadeFree && c.dur > c.fi + c.fo + 0.02 && Math.abs(d[Math.floor((c.fi + (c.dur - c.fo - c.fi) / 2) * 44100)] - want) > 0.02)) badSlice++;
   }
   ok(badSlice === 0, `iris ${Object.keys(CLIPS).length} clip: mono, panjang tepat, fade-in/out (tanpa klik), gain diterapkan (rusak: ${badSlice})`);
+  // musik latar: loop mulus + satu suara saja
+  {
+    const c = CLIPS.bgm_horror, sr = 44100, src = new (am.ctx.createBuffer(1, 1, sr).constructor)(2, Math.floor(SRC_DUR[c.file] * sr), sr);
+    for (const ch of src.d) for (let i = 0; i < ch.length; i++) ch[i] = 0.8 * Math.sin(2 * Math.PI * 441.3 * i / sr);
+    const o = am.slice(src, c).getChannelData(0), m = o.length, step = 2 * Math.PI * 441.3 / sr * 0.8;
+    ok(Math.abs(m - Math.round((c.dur - c.xf) * sr)) <= 2 && c.off + c.dur <= SRC_DUR[c.file] + 1e-3, `musik: panjang loop ${(m / sr).toFixed(1)} dtk (dur ${c.dur} - crossfade ${c.xf}), di dalam file sumber`);
+    ok(Math.abs(o[0] - o[m - 1]) <= step * 1.5 + 1e-3, `musik: sambungan titik loop mulus (loncatan ${Math.abs(o[0] - o[m - 1]).toExponential(2)} <= langkah gelombang normal ${step.toExponential(2)})`);
+    let mx = 0, jump = 0; for (let i = 0; i < m; i++) { mx = Math.max(mx, Math.abs(o[i])); if (i) jump = Math.max(jump, Math.abs(o[i] - o[i - 1])); }
+    ok(mx <= 1 && jump <= step * 2.5, `musik: tidak clipping (puncak ${mx.toFixed(2)}) & tanpa klik di seluruh zona crossfade (loncatan maks ${jump.toExponential(2)})`);
+    ok(SFX.music.loop === true && SFX.music.max === 0 && SFX.music.vol > 0 && SFX.music.vol < 1 && SFX.music.vol <= SFX.step_walk.vol * 0.7, `musik: loop, non-posisional, vol ${SFX.music.vol} < SFX utama (tidak menutupi)`);
+    ctx.started.length = 0; ctx.currentTime += 5; am.stopAll();
+    ok(am.startMusic() === true, 'startMusic() berhasil saat audio siap');
+    for (let i = 0; i < 60; i++) am.startMusic();
+    const ms = ctx.started.filter((x) => x.loop === true || (x.buf && x.buf.length === am.bufs.get('bgm_horror').length));
+    ok(ms.length === 1 && am.voices.size === 1, `startMusic() dipanggil 61x -> TEPAT 1 suara musik (tidak menumpuk), suara aktif=${am.voices.size}`);
+    am.stopAll(); ctx.currentTime += 5; ctx.started.length = 0; am.startMusic();
+    ok(ctx.started.length === 1, 'setelah stopAll()/dispose musik bisa dimulai lagi sekali (restart bersih)');
+    am.stopMusic(); ok(am.voices.size === 0, 'stopMusic() menghentikan musik');
+    ok(new AudioManager().startMusic() === false, 'startMusic() sebelum audio siap: false, tanpa error (dicoba lagi frame berikutnya)');
+  }
   // varian: tidak berulang berurutan, semua terpakai
   for (const name of ['step_walk', 'step_run', 'step_stairs', 'heartbeat', 'breath', 'drawer_open']) {
     ctx.started.length = 0; const seq = [];

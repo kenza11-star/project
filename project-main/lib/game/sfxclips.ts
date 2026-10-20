@@ -1,7 +1,7 @@
 // DIHASILKAN oleh scripts/gen-sfx-clips.py — jangan diedit manual (jalankan ulang skripnya).
 // Potongan (clip) dari file audio di public/sfx: off/dur (detik pada file sumber), gain (normalisasi puncak ke -2 dBFS), fi/fo (fade),
 // hit (detik dari awal potongan sampai momen benturan/kunci; dipakai untuk menyelaraskan suara dengan animasi).
-export interface SfxClip { file: string; off: number; dur: number; gain: number; fi: number; fo: number; hit?: number }
+export interface SfxClip { file: string; off: number; dur: number; gain: number; fi: number; fo: number; hit?: number; xf?: number }
 export const CLIPS: Record<string, SfxClip> = {
   walk_1: { file: "freeeverythingxx-walking-on-concrete-ver-2-268513.mp3", off: 0.363, dur: 0.46, gain: 8.081, fi: 0.004, fo: 0.12 },
   walk_2: { file: "freeeverythingxx-walking-on-concrete-ver-2-268513.mp3", off: 1.07, dur: 0.46, gain: 10.174, fi: 0.004, fo: 0.12 },
@@ -87,11 +87,14 @@ export const CLIPS: Record<string, SfxClip> = {
   cabinet_close_a: { file: "door-close-47.mp3", off: 0.0, dur: 0.7, gain: 2.743, fi: 0.004, fo: 0.12, hit: 0.173 },
   locker_open_a: { file: "metal-door-open-02.mp3", off: 0.001, dur: 1.1, gain: 3.895, fi: 0.004, fo: 0.12, hit: 0.4 },
   locker_close_a: { file: "metal_locker_creak.mp3", off: 1.525, dur: 0.85, gain: 2.078, fi: 0.004, fo: 0.12, hit: 0.5 },
+  monster_jumpscare: { file: "monster_jumpscare.mp3", off: 0.3, dur: 2.4, gain: 1.69, fi: 0.01, fo: 0.3 },
+  james_scream: { file: "james_scream.mp3", off: 0.0, dur: 2.6, gain: 3.023, fi: 0.25, fo: 0.7 },
+  bgm_horror: { file: "bgm_horror.mp3", off: 6, dur: 62, gain: 1, fi: 0, fo: 0, xf: 5 },
   unlock_metal: { file: "metal-door-unlock-02.mp3", off: 0.0, dur: 0.83, gain: 2.207, fi: 0.004, fo: 0.12, hit: 0.079 },
 };
 
 // durasi tiap file sumber (detik): dipakai test untuk memastikan semua potongan berada di dalam file
-export const SRC_DUR: Record<string, number> = {"freeeverythingxx-walking-on-concrete-ver-2-268513.mp3": 8.098, "soumages-running-363346.mp3": 3.082, "freesound_community-footsteps-stairs-slow-106711.mp3": 7.272, "freesound_community-concrete-footsteps-6752.mp3": 59.951, "dragon-studio-heartbeat-sound-372448.mp3": 21.394, "ribhavagrawal-heavy-breathing-sound-effect-type-02-294195.mp3": 8.15, "freesound_community-door-creak-38423.mp3": 3.056, "dragon-studio-door-close-effect-382710.mp3": 0.575, "freesound_community-door-slam-angrily-86963.mp3": 2.16, "impact-slam-46.mp3": 2.0, "dragon-studio-floorboard-creak-02-499644.mp3": 0.792, "desk-drawer-open-02.mp3": 3.0, "desk-drawer-slide-01.mp3": 3.0, "growth-84fc4bc4938dcf852562e065-part-1-v1.mp3": 3.0, "door-close-47.mp3": 1.0, "refrigerator-door-open-02.mp3": 3.0, "metal-door-open-02.mp3": 2.5, "metal_locker_creak.mp3": 3.0, "metal-door-unlock-02.mp3": 2.5, "Tanggalantai_Walk.mp3": 24.033, "Tanggalantai_Run.mp3": 9.003, "desk-drawer-slide-02.mp3": 3.0};
+export const SRC_DUR: Record<string, number> = {"freeeverythingxx-walking-on-concrete-ver-2-268513.mp3": 8.098, "soumages-running-363346.mp3": 3.082, "freesound_community-footsteps-stairs-slow-106711.mp3": 7.272, "freesound_community-concrete-footsteps-6752.mp3": 59.951, "dragon-studio-heartbeat-sound-372448.mp3": 21.394, "ribhavagrawal-heavy-breathing-sound-effect-type-02-294195.mp3": 8.15, "freesound_community-door-creak-38423.mp3": 3.056, "dragon-studio-door-close-effect-382710.mp3": 0.575, "freesound_community-door-slam-angrily-86963.mp3": 2.16, "impact-slam-46.mp3": 2.0, "dragon-studio-floorboard-creak-02-499644.mp3": 0.792, "desk-drawer-open-02.mp3": 3.0, "desk-drawer-slide-01.mp3": 3.0, "growth-84fc4bc4938dcf852562e065-part-1-v1.mp3": 3.0, "door-close-47.mp3": 1.0, "refrigerator-door-open-02.mp3": 3.0, "metal-door-open-02.mp3": 2.5, "metal_locker_creak.mp3": 3.0, "metal-door-unlock-02.mp3": 2.5, "Tanggalantai_Walk.mp3": 24.033, "Tanggalantai_Run.mp3": 9.003, "desk-drawer-slide-02.mp3": 3.0, "monster_jumpscare.mp3": 3.648, "james_scream.mp3": 5.088, "bgm_horror.mp3": 80.039};
 
 export const WALK_CLIPS: string[] = ["walk_1", "walk_2", "walk_4", "walk_5", "walk_6", "walk_7", "walk_9", "walk2_1", "walk2_2", "walk2_3", "walk2_4", "walk2_5", "walk2_6", "walk2_7", "walk2_8", "walk2_9"];
 export const RUN_CLIPS: string[] = ["run_1", "run_2", "run_3", "run_4", "run_5", "run_6", "run_7", "run_8", "run_9", "run_10", "run2_1", "run2_2", "run2_3", "run2_4", "run2_5", "run2_6", "run2_7", "run2_8", "run2_9", "run2_10", "run2_11"];

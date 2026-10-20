@@ -12,7 +12,7 @@ export type SfxName =
   | 'lights_off' | 'lights_on' | 'furniture_scrape'
   | 'entity_whisper' | 'entity_steps' | 'breath' | 'heartbeat' | 'pant' | 'rustle'
   | 'step_walk' | 'step_run' | 'step_stairs' | 'floor_creak' | 'door_slam' | 'impact_slam' | 'monster_scream'
-  | 'capture_scream' | 'capture_impact' | 'capture_hum' | 'capture_scream_lo' | 'capture_scream_mid';
+  | 'capture_scream' | 'capture_impact' | 'capture_hum' | 'capture_scream_lo' | 'capture_scream_mid' | 'player_scream' | 'music';
 
 export interface SfxDef {
   files: string[];   // varian: nama clip (sfxclips.ts) atau nama .wav (dipilih acak, tidak berulang berurutan)
@@ -65,15 +65,18 @@ export const SFX: Record<SfxName, SfxDef> = {
   step_stairs: { files: STAIRS_CLIPS, legacy: ['step_tile_1', 'step_tile_2'], vol: 1, jitter: 0.04, max: 0, prio: 1, gap: 0.12 },
   floor_creak: { files: ['floor_creak'], vol: 0.6, jitter: 0.05, max: 0, prio: 2, gap: 6 },
   door_slam: { files: ['door_slam'], vol: 1, jitter: 0.04, max: 40, ref: 3, prio: 9 },
-  monster_scream: { files: ['monster_scream'], vol: 0.6, jitter: 0, max: 0, prio: 10, gap: 4 }, // teriakan jumpscare (sintetis, scripts/gen-monster-sfx.py)
+  monster_scream: { files: ['monster_jumpscare'], legacy: ['monster_scream'], vol: 0.6, jitter: 0, max: 0, prio: 10, gap: 4 }, // teriakan jumpscare monster ke korban (monster_jumpscare.mp3; cadangan: .wav sintetis scripts/gen-monster-sfx.py)
+  player_scream: { files: ['james_scream'], vol: 0.7, jitter: 0, max: 0, prio: 10, gap: 4 }, // teriakan James saat tertangkap (korban lokal, non-posisional); diputar setelah teriakan monster mereda (JS_PLAYER_SCREAM_AT)
   impact_slam: { files: ['impact_slam'], vol: 0.95, jitter: 0.04, max: 40, ref: 3, prio: 9 },
   // TAHAP 4: suara tangkapan SPASIAL (posisional, atenuasi linear ref->max, panner equalpower). Memakai ulang aset yang sudah ada: monster_scream.wav (teriakan jumpscare)
   // dan clip impact_slam (impact-slam-46.mp3). Tidak ada file baru. Dipicu captureaudio.ts, sekali per kejadian; gap kecil = lapisan terakhir anti-dobel di perangkat yang sama.
-  capture_scream: { files: ['monster_scream'], vol: 0.6, jitter: 0, max: 36, ref: 4, prio: 10, gap: 0.5 },
+  capture_scream: { files: ['james_scream'], legacy: ['monster_scream'], vol: 0.7, jitter: 0, max: 36, ref: 4, prio: 10, gap: 0.5 },
   // Lapisan tambahan (aset yang sama, hanya beda nada/volume lewat rate di captureaudio.ts): dengung rendah + teriakan tahap rendah & sedang. Jangkauan lebih pendek dari teriakan puncak -> makin jauh, makin 'bersih' (hanya teriakan + benturan).
   capture_hum: { files: ['monster_scream'], vol: 0.6, jitter: 0, max: 22, ref: 3, prio: 9, gap: 0.5 },
   capture_scream_lo: { files: ['monster_scream'], vol: 0.6, jitter: 0, max: 28, ref: 4, prio: 10, gap: 0.5 },
-  capture_scream_mid: { files: ['monster_scream'], vol: 0.6, jitter: 0, max: 32, ref: 4, prio: 10, gap: 0.5 },
+  capture_scream_mid: { files: ['monster_jumpscare'], legacy: ['monster_scream'], vol: 0.6, jitter: 0, max: 32, ref: 4, prio: 10, gap: 0.5 },
+  // Musik latar horor (loop mulus, mono, non-posisional): satu suara, dimulai AudioManager.startMusic() saat gameplay mulai; berhenti bersama dispose(). Vol di bawah SFX (langkah/pintu/teriakan ~1.0) agar tidak menutupinya.
+  music: { files: ['bgm_horror'], vol: 0.6, jitter: 0, max: 0, prio: 3, loop: true },
   capture_impact: { files: ['impact_slam'], vol: 0.95, jitter: 0.04, max: 28, ref: 3, prio: 10, gap: 0.5 },
 };
 

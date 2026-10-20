@@ -21,6 +21,7 @@ export class AudioManager {
   private lastPlay = new Map<string, number>();
   private lastVariant = new Map<string, string>(); // varian terakhir per SFX (agar tidak berulang berurutan)
   private ready = false;
+  private musicH: Handle | null = null;
   private disposed = false;
   private listener: Vec = { x: 0, y: 0, z: 0 };
   private fwd = { x: 0, z: -1 };
@@ -105,6 +106,7 @@ export class AudioManager {
     const n = Math.max(1, Math.min(src.length - a, Math.floor(c.dur * sr)));
     const out = this.ctx!.createBuffer(1, n, sr), d = out.getChannelData(0), ch = src.numberOfChannels;
     for (let k = 0; k < ch; k++) { const s = src.getChannelData(k); for (let i = 0; i < n; i++) d[i] += s[a + i] / ch; }
+    if (c.xf) return this.loopBuf(d, n, sr, c);
     const fi = Math.max(1, Math.floor(c.fi * sr)), fo = Math.max(1, Math.floor(c.fo * sr));
     for (let i = 0; i < n; i++) {
       let g = c.gain;
@@ -115,6 +117,23 @@ export class AudioManager {
     }
     return out;
   }
+
+  /** Loop mulus: ekor (xf detik terakhir) di-crossfade (daya sama) ke kepala, lalu dibuang -> sampel terakhir menyambung ke sampel pertama tanpa klik/jeda, tidak bergantung padding encoder mp3. Panjang hasil = dur - xf. */
+  private loopBuf(d: Float32Array, n: number, sr: number, c: SfxClip): AudioBuffer {
+    const x = Math.max(1, Math.min(Math.floor((c.xf ?? 0) * sr), Math.floor(n / 2))), m = n - x, out = this.ctx!.createBuffer(1, m, sr), o = out.getChannelData(0);
+    for (let i = 0; i < m; i++) o[i] = d[i] * c.gain;
+    for (let i = 0; i < x; i++) { const t = (i + 0.5) / x * Math.PI / 2; o[i] = (d[i] * Math.sin(t) + d[m + i] * Math.cos(t)) * c.gain; }
+    for (let i = 0; i < m; i++) { const v = o[i], a = v < 0 ? -v : v; if (a > 0.9) o[i] = (v < 0 ? -1 : 1) * (0.9 + 0.1 * Math.tanh((a - 0.9) / 0.1)); }   // pembatas lembut yang sama dengan slice(): jumlah dua sinyal berkorelasi tidak pernah > 1,0
+    return out;
+  }
+
+  /** Mulai musik latar SEKALI (aman dipanggil tiap frame: tidak menumpuk). Mengembalikan true bila sudah/ sedang berbunyi; bila audio belum siap/ter-suspend -> false, coba lagi nanti. */
+  startMusic(): boolean {
+    if (this.musicH) return true;
+    this.musicH = this.start('music');
+    return !!this.musicH;
+  }
+  stopMusic(): void { this.musicH?.stop(); this.musicH = null; }
 
   /** Posisi & arah pendengar (kamera). Dipanggil tiap frame; diperbarui ~20 Hz. */
   setListener(x: number, y: number, z: number, yaw: number, dt: number): void {
@@ -215,7 +234,7 @@ export class AudioManager {
     try { v.src.disconnect(); v.gain.disconnect(); v.filter?.disconnect(); v.panner?.disconnect(); } catch { /* abaikan */ }
   }
 
-  stopAll(): void { Array.from(this.voices).forEach((v) => v.stop()); }
+  stopAll(): void { this.musicH = null; Array.from(this.voices).forEach((v) => v.stop()); }
 
   dispose(): void {
     this.disposed = true;
