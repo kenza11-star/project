@@ -97,7 +97,7 @@ add('door_creak', 'creak', 0.10, 2.70, fi=0.05, fo=0.45)               # buka: l
 add('door_close_hit', 'dclose', 0.04, 0.50, fo=0.08, hit=refine('dclose', 0.21))
 add('door_slam', 'slam', 0.20, 1.96, fo=0.3, hit=refine('slam', 1.35))   # event horor
 add('impact_slam', 'impact', 0.00, 2.00, fo=0.3, hit=refine('impact', 1.4))  # event horor
-add('monster_jumpscare', 'mon_scream', 0.30, 2.40, fi=0.01, fo=0.3)   # teriakan monster: mulai setelah ~0,1 dtk senyap awal file
+add('monster_jumpscare', 'mon_scream', 0.30, 2.40, fi=0.01, fo=0.3); clips['monster_jumpscare']['gain'] = 2.2   # teriakan monster (dibuat lebih keras dari normalisasi -2 dBFS; pembatas lembut di AudioManager.slice mencegah clipping): mulai setelah ~0,1 dtk senyap awal file
 add('james_scream', 'james', 0.00, 2.60, fi=0.25, fo=0.7)   # teriakan player: fade-in lambat, dimulai saat teriakan monster mereda (JS_PLAYER_SCREAM_AT)
 add('floor_creak', 'floor', 0.18, 0.60, fi=0.02, fo=0.15)
 # ---- furniture: 'hit' = momen benturan/kunci; potongan dipangkas supaya hit jatuh sekitar pre detik setelah mulai (selaras animasi 0,5 dtk)

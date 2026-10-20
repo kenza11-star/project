@@ -87,7 +87,7 @@ export const CLIPS: Record<string, SfxClip> = {
   cabinet_close_a: { file: "door-close-47.mp3", off: 0.0, dur: 0.7, gain: 2.743, fi: 0.004, fo: 0.12, hit: 0.173 },
   locker_open_a: { file: "metal-door-open-02.mp3", off: 0.001, dur: 1.1, gain: 3.895, fi: 0.004, fo: 0.12, hit: 0.4 },
   locker_close_a: { file: "metal_locker_creak.mp3", off: 1.525, dur: 0.85, gain: 2.078, fi: 0.004, fo: 0.12, hit: 0.5 },
-  monster_jumpscare: { file: "monster_jumpscare.mp3", off: 0.3, dur: 2.4, gain: 1.69, fi: 0.01, fo: 0.3 },
+  monster_jumpscare: { file: "monster_jumpscare.mp3", off: 0.3, dur: 2.4, gain: 2.2, fi: 0.01, fo: 0.3 },
   james_scream: { file: "james_scream.mp3", off: 0.0, dur: 2.6, gain: 3.023, fi: 0.25, fo: 0.7 },
   bgm_horror: { file: "bgm_horror.mp3", off: 6, dur: 62, gain: 1, fi: 0, fo: 0, xf: 5 },
   unlock_metal: { file: "metal-door-unlock-02.mp3", off: 0.0, dur: 0.83, gain: 2.207, fi: 0.004, fo: 0.12, hit: 0.079 },
