@@ -3,6 +3,7 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { LogOut, Hand, Backpack, RotateCcw, Flashlight, Menu, EyeOff, MessageSquare, Mic, MicOff, Send, Key, Battery, Coffee, FileText, Plus } from 'lucide-react';
 import { GameWorld, type GameCtx } from '@/lib/game/world';
+import { inBunker } from '@/lib/game/puzzleroom';
 import { createPlayer, type PlayerState } from '@/lib/game/inventory';
 import { KEY_DEFS } from '@/lib/game/keys';
 import { Flashlight as FlashState } from '@/lib/game/flashlight';
@@ -81,6 +82,7 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
   const subRef = useRef<HTMLDivElement>(null), subTxtRef = useRef<HTMLDivElement>(null), subTimeRef = useRef<HTMLSpanElement>(null), subBarRef = useRef<HTMLDivElement>(null);   // subtitle di atas layar hitam (settle/hold)
   const [bag, setBag] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [kp, setKp] = useState(false); const [kpCode, setKpCode] = useState(''); const fadeRef = useRef<HTMLDivElement>(null);
   const [chatLog, setChatLog] = useState<ChatEvent[]>([]);
   const chatIn = useRef<HTMLInputElement>(null);
   const [sel, setSel] = useState(0);        // slot hotbar terpilih
@@ -112,7 +114,7 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
   const st = useRef({
     run: false, crouch: false, status: 'loading' as string,
     act: () => {}, hide: () => {}, restart: () => {}, canStand: (): boolean => true,
-    resetInput: () => {}, applySettings: (_s: Settings) => {}, sens: 1, invertY: false,
+    kp: false, kpKey: (_k: string): boolean => false, resetInput: () => {}, applySettings: (_s: Settings) => {}, sens: 1, invertY: false,
   });
   // ---- Pause menu ----
   // Single Player (1 slot): menu = freeze penuh. Multiplayer (2-4 slot): menu = overlay LOKAL saja, dunia/simulasi tetap jalan (lib/game/pause.ts).
@@ -129,6 +131,22 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
   const goPanel = (p: PausePanel) => { pz.current.go(p); syncMenu(); };
   const patchSettings = (patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch }));
 
+  const closeKp = () => { st.current.kp = false; setKp(false); setKpCode(''); st.current.resetInput(); };
+  const kpPress = (k: string): boolean => {
+    if (k === 'Escape') { closeKp(); return true; }
+    const w = worldRef.current; if (!w) return false;
+    if (/^\d$/.test(k)) { setKpCode((c) => (c.length < 4 ? c + k : c)); return true; }
+    if (k === 'Backspace') { setKpCode((c) => c.slice(0, -1)); return true; }
+    if (k === 'Enter') { kpSubmit(); return true; }
+    return false;
+  };
+  const kpRef = useRef(''); kpRef.current = kpCode;
+  const kpSubmit = () => {
+    const w = worldRef.current; if (!w) return; const c = kpRef.current;
+    if (c.length < 4) return;
+    if (w.submitCode(c)) { closeKp(); say('Kode benar - pintu besi terbuka', 2200); } else { setKpCode(''); say('Kode salah', 1200); w.audio?.alarm(); }
+  };
+  st.current.kpKey = kpPress;
   const say = (t: string, ms = 1800) => {
     setMsg(t);
     if (msgT.current) clearTimeout(msgT.current);
@@ -429,7 +447,10 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
       .then(async (w) => {
         const mv = await mvP;
         if (cancelled) { w.dispose(); mv?.dispose(); return; }
-        world = w; worldRef.current = w; w.audio = audio; w.onScare = () => { scareFx.trigger(); }; mview = mv;
+        world = w; worldRef.current = w; w.audio = audio;
+        w.onRoomChange = () => force();
+        w.onKeypad = () => { if (S.status !== 'play') return; S.kp = true; setKp(true); setKpCode(''); S.resetInput(); };
+        w.onTeleport = () => { pos.yaw = player.yaw; pos.pitch = 0; const f = fadeRef.current; if (f) { f.style.transition = 'none'; f.style.opacity = '1'; requestAnimationFrame(() => requestAnimationFrame(() => { f.style.transition = 'opacity .9s ease-out'; f.style.opacity = '0'; })); } }; w.onScare = () => { scareFx.trigger(); }; mview = mv;
         // Loker/lemari online: server memutuskan 1 pemain per loker (lib/net/lockers.ts). Single Player: gate null -> sembunyi lokal seperti sebelumnya.
         if (net) { const lk = net.lockers; w.lockerNet = { selfId: net.client.selfId, ownerOf: (k) => lk.ownerOf(k), keyOf: (u) => lk.keyOf(u), claim: (k) => lk.claim(k), release: (k) => lk.release(k), hold: (k, f) => lk.hold(k, f), stopHold: () => lk.stopHold(), alive: () => S.status === 'play' }; }
         beginRun();
@@ -441,6 +462,7 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return; // sedang mengetik chat
       if (!pz.current.frozen) audio.unlock(); // pause solo: audio tetap diam
       const key = e.key.toLowerCase();
+      if (S.kp) { if (S.kpKey(e.key)) e.preventDefault(); return; } // keypad terbuka: hanya digit/hapus/enter/escape
       if (e.key === 'Escape') { // saat bermain: buka/tutup menu (sub-panel -> kembali). Di luar status bermain: keluar seperti sebelumnya.
         if (S.status === 'play') { if (!e.repeat) { if (pz.current.open) menuBack(); else openMenu(); } } else exitRef.current();
         return;
@@ -556,9 +578,9 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
       if (!world || !mctl || !mview || !mview.ready) { if (he && he.style.opacity !== '0') he.style.opacity = '0'; return; }
       const live = (S.status === 'play' && simulate) || S.status === 'dead';   // pause solo membekukan monster; saat 'dead' otoritas tetap berjalan
       const v = mctl.view, lvY = world.monsterFloorY(v.level, v.onStairs, v.x);   // tinggi lantai di bawah monster (lantai 1/2 atau anak tangga)
-      const selfObs: PlayerObs = { id: monSelf, x: player.x, z: player.z, level: player.level, gait: gaitName(netGait), crouch: S.crouch, hidden: !!world.hiding, grace: 0, stairs: player.onStairs, caught: S.status === 'dead' };
+      const selfObs: PlayerObs = { id: monSelf, x: player.x, z: player.z, level: player.level, gait: gaitName(netGait), crouch: S.crouch, hidden: !!world.hiding || world.inBunkerRoom, grace: 0, stairs: player.onStairs, caught: S.status === 'dead' };
       if (live) {
-        const rem: PlayerObs[] = net ? net.client.sample().map((rv) => ({ id: rv.id, x: rv.state.x, z: rv.state.z, level: rv.state.level, gait: gaitName(rv.state.gait), crouch: !!rv.state.crouch, hidden: !!rv.state.hide, grace: 0, caught: !!rv.state.cg, stairs: rv.state.y > CFG.LEVEL_Y[0] + 0.2 && rv.state.y < CFG.LEVEL_Y[1] - 0.2 })) : [];
+        const rem: PlayerObs[] = net ? net.client.sample().map((rv) => ({ id: rv.id, x: rv.state.x, z: rv.state.z, level: rv.state.level, gait: gaitName(rv.state.gait), crouch: !!rv.state.crouch, hidden: !!rv.state.hide || inBunker(rv.state.x, rv.state.z), grace: 0, caught: !!rv.state.cg, stairs: rv.state.y > CFG.LEVEL_Y[0] + 0.2 && rv.state.y < CFG.LEVEL_Y[1] - 0.2 })) : [];
         mctl.update(dt, selfObs, rem);
       }
       // ---- seretan (TAHAP 2): kontrol sudah mati (status 'dead'); korban mengikuti jejak monster, bukan teleport ke tujuan ----
@@ -650,7 +672,7 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
       // PAUSE SOLO: seluruh simulasi berhenti (world.update: musuh/SCP/event/timer/pintu/lampu, gerak, senter, stamina, opening/scare fx).
       // Hanya render ulang frame terakhir; `last` tetap diperbarui di atas sehingga tidak ada lonjakan dt saat RESUME.
       if (playing && !gate.simulate) { draw(t); return; }
-      const inputOn = gate.input; // multiplayer overlay: simulasi jalan terus, tetapi input lokal mati
+      const inputOn = gate.input && !S.kp; // multiplayer overlay: simulasi jalan terus, tetapi input lokal mati
       // opening: waktu hanya maju saat game berjalan (dijeda = ikut berhenti)
       let wk: WakeFx | null = null;
       const sf = scareFx.update(playing ? dt : 0); // waktu efek hanya maju saat game berjalan
@@ -871,6 +893,7 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
         const dbg = process.env.NODE_ENV !== 'production' || (typeof location !== 'undefined' && /[?&]debugmission=1/.test(location.search));
         return (
           <div className="missionhud" style={{ position: 'fixed', left: 12, top: 60, zIndex: 6, font: '12px/1.5 monospace', color: '#e8e2d0', textShadow: '0 1px 2px #000', pointerEvents: dbg ? 'auto' : 'none' }}>
+            {w.bunkerOn && w.roomDigits().some((d) => d !== null) && !ms.code && <div style={{ color: '#9fe3b0' }}>Kode: {w.roomDigits().map((d) => (d === null ? '_' : d)).join(' ')}</div>}
             {rows.map(([id, label, done]) => (
               <div key={id} style={{ opacity: done ? 0.6 : 1 }}>
                 <span aria-hidden>{done ? '[x]' : '[ ]'}</span> {label}
@@ -880,6 +903,21 @@ export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onE
           </div>
         );
       })()}
+      <div ref={fadeRef} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 40, background: '#000', opacity: 0, pointerEvents: 'none' }} />
+      {status === 'play' && kp && (
+        <div role="dialog" aria-label="Panel kode" style={{ position: 'fixed', inset: 0, zIndex: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)' }} onContextMenu={(e) => e.preventDefault()}>
+          <div style={{ background: '#0c110e', border: '2px solid #5a6a5c', borderRadius: 8, padding: 16, width: 250, font: '16px monospace', color: '#cfe8d2', textAlign: 'center' }}>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>SUBSTASIUN 7 - MASUKKAN KODE</div>
+            <div style={{ fontSize: 34, letterSpacing: 10, padding: '8px 0', background: '#050806', border: '1px solid #2e3b31', marginBottom: 10, color: '#47ff8a', minHeight: 56 }}>{(kpCode + '____').slice(0, 4).split('').join(' ')}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Backspace', '0', 'Enter'].map((k) => (
+                <button key={k} className="gbtn" style={{ padding: '12px 0', fontSize: 18 }} onClick={() => kpPress(k)}>{k === 'Backspace' ? '⌫' : k === 'Enter' ? 'OK' : k}</button>
+              ))}
+            </div>
+            <button className="gbtn small" style={{ marginTop: 10 }} onClick={closeKp}>Tutup</button>
+          </div>
+        </div>
+      )}
       {bag && (
         <div className="bag">
           {KEY_DEFS.map((k) => (

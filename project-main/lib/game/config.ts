@@ -18,6 +18,7 @@ export const MAX_FURNITURE = 14;
 export const MAP_URL = '/models/backrooms_full.glb'; // satu-satunya map utama
 export const CHAIR_URL = '/models/chair.glb'; // model kursi custom; bila gagal dimuat, kursi bawaan map tetap dipakai
 export const SODA_URL = '/models/NORVIX_SODA_330ML_1file_vertexcolor.glb'; // Soda NORVIX (GLB + vertex color); bila gagal dimuat, soda tidak di-spawn
+export const LEVER_URL = '/models/lever_power_switch.glb'; // saklar tuas (aset pengguna, dipakai apa adanya) untuk ruangan puzzle tersembunyi
 export const SCP_URL = '/models/scp-106.glb';  // SCP-106 (skinned, tanpa animasi bawaan -> dianimasikan dari transformasi tulang, lihat scp106.ts)
 export const LEVEL_Y = [0, 3.4]; // tinggi lantai per level: lantai 1 (y=0) dan lantai 2 (permukaan slab)
 export const REACH = 2.4;          // jarak maksimum interaksi (meter)

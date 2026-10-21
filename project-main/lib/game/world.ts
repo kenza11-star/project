@@ -21,6 +21,8 @@ import { SODA_ITEM, authoredSodaSpots, randomSurfaceSpot, chooseSodaSpots, type 
 import type { NetWorldEvent } from '../net/worldsync';
 import { missionAll, missionCount, type MissionId, type MissionState } from '../net/mission';
 import { SwitchPuzzle, switchOrder, planSwitches, type SwitchSpot } from './switchpuzzle';
+import { Bunker } from './bunker';
+import { makePuzzleModel, RoomPuzzle, planHatch, checkCode, bunkerWalls, BUNKER_AREA, LAYOUT as BK_LAYOUT, type HatchSpot, type PuzzleModel, type Station } from './puzzleroom';
 import { lockerKeyOf } from '../net/lockers';
 import type { LockerGate } from '../net/lockerclient';
 import { LockerEntry, type LockerFlowFx } from './lockerflow';
@@ -247,19 +249,19 @@ export class GameWorld {
   static async load(scene: THREE.Scene, onProgress?: (p: number) => void): Promise<GameWorld> {
     // kursi custom dimuat paralel dengan map; bila gagal (file hilang/rusak) kursi bawaan map tetap dipakai
     const optional = (url: string): Promise<any> => new Promise((res) => { new GLTFLoader().load(url, res, undefined, () => res(null)); });
-    const sodaP = optional(CFG.SODA_URL), scpP = optional(CFG.SCP_URL); // paralel; bila gagal, fitur terkait dilewati (map tetap jalan)
+    const sodaP = optional(CFG.SODA_URL), scpP = optional(CFG.SCP_URL), leverP = optional(CFG.LEVER_URL); // paralel; bila gagal, fitur terkait dilewati (map tetap jalan)
     const chairP: Promise<any> = new Promise((res) => { new GLTFLoader().load(CFG.CHAIR_URL, res, undefined, () => res(null)); });
     const gltf: any = await new Promise((res, rej) => {
       new GLTFLoader().load(CFG.MAP_URL, res, (e: ProgressEvent) => { if (e.total) onProgress?.(e.loaded / e.total); }, rej);
     });
     const chairG = await chairP;
-    const sodaG = await sodaP, scpG = await scpP;
+    const sodaG = await sodaP, scpG = await scpP, leverG = await leverP;
     const json = gltf.parser.json as GltfJson;
     applyFootprints(measureFootprints(json, TEMPLATE)); // footprint furniture acak = bounds nyata GLB (termasuk bagian yang menonjol)
     const md = extractMapData(json);
     const w = new GameWorld(scene, gltf.scene, md);
     w.build(gltf, json, chairG);
-    w.initSoda(sodaG, json); w.initScp(scpG);
+    w.initSoda(sodaG, json); w.initScp(scpG); w.initBunker(leverG);
     return w;
   }
 
@@ -1071,10 +1073,15 @@ export class GameWorld {
       this.remoteTaken.add(e.id);
       for (const p of this.pickups) if (!p.taken && p.it.id === e.id) this.takeRemote(p);
     } else if (e.k === 'mission') {
-      if (!this.missionDone[e.id]) { this.missionDone[e.id] = true; if (e.id === 'switch') this.syncSwitchDone(); this.tryOpenExit(); } // dari host (disaring WorldSync.receive)
+      if (!this.missionDone[e.id]) { this.missionDone[e.id] = true; if (e.id === 'switch') this.syncSwitchDone(); if (e.id === 'code') this.syncCodeDone(); this.tryOpenExit(); } // dari host (disaring WorldSync.receive)
     } else if (e.k === 'sw') {
       const pz = this.swPuz, prev = pz ? pz.v : 0;
       if (pz && pz.apply(e.v, e.p)) this.showSwitches(e.r === 1 && e.v === prev + 1); // alarm hanya untuk salah-urutan yang baru terjadi (bukan digest lama)
+    } else if (e.k === 'pz') {
+      const rm = this.room, prev = rm ? rm.v : 0;
+      if (rm && rm.apply(e)) { this.bunker?.show(e.r === 1 && e.v === prev + 1, e.lp); this.onRoomChange?.(); }
+    } else if (e.k === 'pzreq') {
+      if (this.missionHost) this.hostRoom(e.t, e.i);
     } else if (e.k === 'swreq') {
       if (this.missionHost) this.hostSwitch(e.i);
     } else if (e.k === 'mreq') {
@@ -1127,8 +1134,90 @@ export class GameWorld {
   completeMission(id: MissionId) {
     if (!this.missionHost) { this.netSink?.({ k: 'mreq', id }); return; }
     if (this.missionDone[id]) return;
-    this.missionDone[id] = true; this.netSink?.({ k: 'mission', id }); if (id === 'switch') this.syncSwitchDone(); this.tryOpenExit();
+    this.missionDone[id] = true; this.netSink?.({ k: 'mission', id }); if (id === 'switch') this.syncSwitchDone(); if (id === 'code') this.syncCodeDone(); this.tryOpenExit();
   }
+  // ------------------------------------------------------------------ ruangan puzzle tersembunyi (kode 4 digit)
+  // Palka di lantai salah satu ruangan sepi -> bunker jauh di timur peta (di luar bangunan). 4 teka-teki, masing-masing 1 digit kode; keypad di pintu besi.
+  // Model puzzle (kode, urutan, tata letak) murni dari seed room: sama di semua klien. Host = otoritas ('pzreq' -> 'pz'), sama seperti saklar.
+  private bunker: Bunker | null = null; private room: RoomPuzzle | null = null; private roomModel: PuzzleModel | null = null; private hatchSpot: HatchSpot | null = null;
+  private nBaseLights = 0; private inBk = false; private floorWalk: { minx: number; minz: number; maxx: number; maxz: number } | null = null;
+  /** PlayScene: buka modal keypad. */
+  onKeypad: (() => void) | null = null;
+  /** PlayScene: efek transisi (fade) saat pindah masuk/keluar bunker. */
+  onTeleport: ((dir: 'in' | 'out') => void) | null = null;
+  /** PlayScene: HUD perlu digambar ulang (digit kode baru ditemukan). */
+  onRoomChange: (() => void) | null = null;
+  /** Digit kode yang sudah ditemukan (null = belum). */
+  roomDigits(): (number | null)[] { return this.room ? this.room.digits() : [null, null, null, null]; }
+  get inBunkerRoom() { return this.inBk; }
+  get bunkerOn() { return !!(this.bunker && this.room && this.hatchSpot); }
+  private initBunker(g: any) {
+    if (!g || !g.animations || !g.animations.length) { if (dev) console.warn('[game] lever_power_switch.glb tidak ada / tanpa animasi: ruangan puzzle dinonaktifkan'); return; }
+    this.floorWalk = { ...this.md.floor0 };
+    this.bunker = new Bunker({
+      scene: this.scene, cw: this.cw, ix: this.ix, hitMat: this.pickHitMat, lever: { scene: g.scene, animations: g.animations },
+      audio: () => this.audio as any, press: (st, i) => this.pressRoom(st, i), keypad: () => this.onKeypad?.(), climb: () => this.leaveBunker(), enter: () => this.enterBunker(),
+    });
+    for (const w of bunkerWalls()) this.cw.fillRect(0, w.minx, w.minz, w.maxx, w.maxz);
+    this.nBaseLights = this.lightSrcs.length;
+    for (const l of this.bunker.lights) this.lightSrcs.push({ pos: new THREE.Vector3(l.x, l.y, l.z), color: new THREE.Color(l.c), intensity: l.i * 2.4 * CFG.LIGHT_SCALE, range: l.r, flicker: l.flicker, chance: 0.5 });
+    this.fx.setCount(this.lightSrcs.length);
+    this.lightBase = this.lightSrcs.map((s) => ({ i: s.intensity, f: s.flicker, c: s.chance }));
+  }
+  private placeBunker(sd: number, nav: NavGrid) {
+    const b = this.bunker; this.room = null; this.roomModel = null; this.hatchSpot = null;
+    if (!b) { this.missionDone.code = true; return; } // aset tidak ada: misi kode dianggap selesai agar exit tidak terkunci selamanya
+    const model = makePuzzleModel((sd ^ 0x7b4c1e55) >>> 0);
+    const hatch = planHatch(nav, makeRng((sd ^ 0x1d0a7c3b) >>> 0), { rooms: this.md.rooms, spawn: this.spawn, keepouts: this.keepouts, avoid: this.swRts.map((r) => ({ x: r.spot.x, z: r.spot.z, r: 2 })) });
+    if (!hatch) { this.missionDone.code = true; if (dev) console.warn('[game] palka tidak menemukan tempat: misi kode dilewati'); b.beginRun(model, new RoomPuzzle(model), null, true); return; }
+    this.roomModel = model; this.room = new RoomPuzzle(model); this.hatchSpot = hatch;
+    b.beginRun(model, this.room, hatch, false);
+  }
+  /** Kode benar untuk keypad (hanya untuk tes/dev): jangan ditampilkan ke pemain. */
+  roomCodeForDev(): string { return this.roomModel ? this.roomModel.code.join('') : ''; }
+  private setInBunker(v: boolean) {
+    this.inBk = v;
+    if (!this.floorWalk) return;
+    this.cw.walk[0] = v ? { minx: BUNKER_AREA.minx - 0.3, maxx: BUNKER_AREA.maxx + 0.3, minz: BUNKER_AREA.minz - 0.3, maxz: BUNKER_AREA.maxz + 0.3 } : { ...this.floorWalk };
+  }
+  /** Turun lewat palka: pindah ke bunker. */
+  enterBunker() {
+    const p = this.pl; if (!p || !this.bunkerOn || this.inBk) return;
+    this.setInBunker(true);
+    p.x = BK_LAYOUT.arrive.x; p.z = BK_LAYOUT.arrive.z; p.yaw = BK_LAYOUT.arrive.yaw; p.pitch = 0; p.level = 0; p.y = 0; p.onStairs = false;
+    this.audio?.play('door_open', { pos: { x: p.x, y: 1.2, z: p.z } });
+    this.ix.invalidate(); this.onTeleport?.('in');
+  }
+  /** Naik tangga: kembali ke depan palka di bangunan. */
+  leaveBunker() {
+    const p = this.pl, h = this.hatchSpot; if (!p || !h || !this.inBk) return;
+    this.setInBunker(false);
+    p.x = h.ax; p.z = h.az; p.level = 0; p.y = 0; p.onStairs = false; p.pitch = 0;
+    p.yaw = Math.atan2(h.x - h.ax, h.z - h.az) + Math.PI; // menghadap ke palka
+    this.audio?.play('cabinet_open', { pos: { x: p.x, y: 1.2, z: p.z } });
+    this.ix.invalidate(); this.onTeleport?.('out');
+  }
+  private pressRoom(st: Station, i: number) {
+    if (!this.room) return;
+    this.ix.invalidate();
+    if (!this.missionHost) { this.netSink?.({ k: 'pzreq', t: st, i }); return; }
+    this.hostRoom(st, i);
+  }
+  private hostRoom(st: Station, i: number) {
+    const rm = this.room; if (!rm) return;
+    const res = rm.press(st, i); if (res === 'ignored') return;
+    const lp = st * 8 + i;
+    this.netSink?.({ k: 'pz', r: res === 'reset' ? 1 : 0, lp, ...rm.snapshot() });
+    this.bunker?.show(res === 'reset', lp); this.onRoomChange?.();
+    if (res === 'done') this.audio?.play('lock_unlock', { pos: { x: BK_LAYOUT.arrive.x + 4, y: 1.4, z: BK_LAYOUT.arrive.z - 4 } });
+  }
+  /** Keypad: kode 4 digit. Benar -> misi 'code' selesai (pintu besi terbuka). */
+  submitCode(code: string): boolean {
+    if (!this.roomModel || !checkCode(this.roomModel, code)) return false;
+    this.completeMission('code'); return true;
+  }
+  private syncCodeDone() { this.room?.completeAll(); this.bunker?.show(false, 0); this.bunker?.setVault(true); this.onRoomChange?.(); }
+
   // ------------------------------------------------------------------ puzzle saklar (Tahap 2)
   // 5 saklar di dinding 5 ruangan berbeda. Urutan benar dari seed room (sama di semua klien, tidak pernah disiarkan). Host = otoritas:
   // non-host mengirim 'swreq', host memutuskan lalu menyiarkan state ('sw': versi + jumlah benar + flag salah). Salah urutan = semua mati + alarm kecil.
@@ -1571,6 +1660,7 @@ export class GameWorld {
 
     // bersihkan sisa run sebelumnya
     this.ix.removeWhere((it) => !!it.runScoped);
+    this.setInBunker(false);
     for (const o of this.randomObjs) { this.scene.remove(o); }
     this.ix.removeOccluders(this.randomObjs);
     this.randomObjs = []; this.randomContainers = []; this.pickups = []; this.remoteTaken.clear();
@@ -1663,7 +1753,7 @@ export class GameWorld {
       const st = planRoomState({
         rng: srng, cfg: CFG.ROOM_STATE, spawn: this.spawn, exit: { x: md.exit.insideX, z: md.exit.insideZ },
         doors: this.doors.map((d) => ({ cx: d.d.cx, cz: d.d.cz, level: d.d.level, type: d.d.type, locked: d.d.locked })),
-        lights: this.lightSrcs.map((l) => ({ x: l.pos.x, z: l.pos.z })),
+        lights: this.lightSrcs.slice(0, this.nBaseLights || this.lightSrcs.length).map((l) => ({ x: l.pos.x, z: l.pos.z })),
         containers: all.filter((c) => c.content?.type === 'empty' && reach.has(c.id)).map((c) => ({ id: c.id, x: c.ax, z: c.az })), // hanya yang kosong: key/loot tidak pernah dilewati
       });
       this.applyRoomState(st, all);
@@ -1672,6 +1762,7 @@ export class GameWorld {
     // Soda NORVIX di permukaan nyata (meja / papan rak), terjangkau & jauh dari spawn. RNG sendiri: urutan RNG lain tidak berubah.
     this.placeSodas(sd, nav, placed);
     this.placeSwitches(sd, nav); // puzzle saklar: RNG sendiri (urutan RNG lain tidak berubah)
+    this.placeBunker(sd, nav);   // ruangan puzzle tersembunyi + palka (RNG sendiri)
     // SCP-106: lokasi pemicu diacak SEKALI per run, hanya dari locker/lemari yang bisa dibuka & terjangkau (belum terbuka)
     {
       const slotIds = new Set(slots.map((x) => x.id));
@@ -1752,6 +1843,7 @@ export class GameWorld {
       while (b.i < b.steps.length && b.t >= b.steps[b.i][0]) { b.t -= b.steps[b.i][0]; b.i++; }
       if (b.i >= b.steps.length) { this.bo = null; this.setLightMul(1); } else this.setLightMul(b.steps[b.i][1]);
     }
+    this.bunker?.update(dt, player.x, player.z);
     this.updateLights(dt, player);
     // event horor acak (jarang, tak terduga, selalu aman)
     if (playing && this.sched) this.sched.update(dt, (type) => this.tryEvent(type, player));
@@ -2076,6 +2168,7 @@ export class GameWorld {
   }
 
   dispose() {
+    this.bunker?.dispose(); this.bunker = null;
     this.timers = []; this.bo = null; this.active.clear(); this.moving?.h?.stop(); this.moving = null; this.sched = null;
     this.buzzVoices.forEach((v) => { v.h?.stop(); v.h = null; }); this.ambH?.stop(); this.ambH = null;
     this.hideEntity();

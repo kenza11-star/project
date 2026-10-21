@@ -16,6 +16,7 @@
     "../lib/game/config.ts",
     "../lib/game/rng.ts",
     "../lib/game/switchpuzzle.ts",
+    "../lib/game/puzzleroom.ts",
     "../lib/game/keys.ts",
     "../lib/game/inventory.ts",
     "../lib/game/collision.ts",

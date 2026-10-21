@@ -314,6 +314,23 @@ const members = (ids) => ids.map((id, i) => ({ id, name: 'P' + (i + 1), slot: i 
     host.reset(); ok(host.digest() === null, 'reset (restart) mengosongkan state saklar');
   }
 
+  section('Ruangan puzzle: state otoritatif host, permintaan non-host, sinkron');
+  {
+    const host = new W.WorldSync(), a = new W.WorldSync(), b = new W.WorldSync();
+    const s1 = { v: 1, a: 1, b: 0, c: 0, d: 0, f: 0 };
+    const m1 = host.local({ k: 'pz', r: 0, lp: 8, ...s1 });
+    ok(m1 && m1.ev[0].k === 'pz' && m1.ev[0].a === 1 && m1.ev[0].lp === 8, 'host menyiarkan state ruangan');
+    ok(host.local({ k: 'pz', r: 0, lp: 8, ...s1 }) === null, 'versi sama tidak disiarkan lagi');
+    ok(a.receive(m1, true).length === 1 && a.receive(m1, true).length === 0, 'pemain lain menerima, idempoten');
+    ok(b.receive(m1, false).length === 0 && b.digest() === null, 'state dari NON-host ditolak');
+    const d = host.digest(); ok(d.ev.some((x) => x.k === 'pz' && x.v === 1 && x.r === 0 && x.lp === 0), 'digest tanpa flag alarm');
+    const rq = a.local({ k: 'pzreq', t: 3, i: 2 }); ok(rq && rq.ev[0].k === 'pzreq' && a.digest().ev.every((x) => x.k !== 'pzreq'), 'pzreq terkirim, tidak disimpan');
+    const er = host.receive(rq, false); ok(er.length === 1 && er[0].k === 'pzreq' && er[0].t === 3 && er[0].i === 2, 'host menerima permintaan');
+    const bad = W.sanitizeWorldMsg({ v: 1, t: 'w', ev: [{ k: 'pz', r: 0, lp: 99, ...s1 }, { k: 'pz', r: 2, lp: 0, ...s1 }, { k: 'pzreq', t: 5, i: 0 }, { k: 'pzreq', t: 1, i: 7 }, { k: 'pzreq', t: 4, i: 3 }] });
+    ok(bad.ev.length === 1 && bad.ev[0].k === 'pzreq' && bad.ev[0].t === 4, 'pesan ruangan tidak sah dibuang');
+    host.reset(); ok(host.digest() === null, 'reset mengosongkan state ruangan');
+  }
+
   console.log(`\nHASIL: ${passes} lulus, ${fails} gagal`);
   process.exit(fails ? 1 : 0);
 })();

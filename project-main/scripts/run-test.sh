@@ -7,6 +7,7 @@ TSC=./node_modules/.bin/tsc
 rm -rf .tmp-game
 $TSC -p scripts/tsconfig.test.json
 node scripts/test-game.js
+node scripts/test-puzzleroom.js
 node scripts/test-polish.js
 node scripts/test-hide.js
 node scripts/test-chair.js

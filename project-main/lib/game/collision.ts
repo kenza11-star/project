@@ -24,7 +24,7 @@ function distPointTri(px: number, pz: number, ax: number, az: number, bx: number
 
 export class CollisionWorld {
   readonly cell = 0.1;
-  readonly x0 = -2; readonly z0 = -2; readonly W = 450; readonly H = 450; // cakupan 45 x 45 m (map 38,4 x 38,4 m)
+  readonly x0 = -2; readonly z0 = -2; readonly W = 620; readonly H = 450; // cakupan 62 x 45 m (map 38,4 x 38,4 m + bunker puzzle di timur, lihat puzzleroom.ts)
   readonly solid: Uint8Array[];
   readonly walk: (Rect | null)[];
   readonly obbs: Obb[] = [];
@@ -69,6 +69,13 @@ export class CollisionWorld {
     }
   }
 
+  /** Isi persegi (pusat dunia) sebagai solid pada grid level tsb (dinding bunker puzzle). */
+  fillRect(level: number, minx: number, minz: number, maxx: number, maxz: number): void {
+    const g = this.solid[level], c = this.cell;
+    const i0 = Math.max(0, Math.floor((minx - this.x0) / c)), i1 = Math.min(this.W - 1, Math.ceil((maxx - this.x0) / c) - 1);
+    const j0 = Math.max(0, Math.floor((minz - this.z0) / c)), j1 = Math.min(this.H - 1, Math.ceil((maxz - this.z0) / c) - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) g[j * this.W + i] = 1;
+  }
   addObb(o: ObbIn): Obb {
     const b: Obb = { ...o, enabled: true, cos: Math.cos(o.yaw), sin: Math.sin(o.yaw), rad: Math.hypot(o.hx, o.hz) };
     this.obbs.push(b);
