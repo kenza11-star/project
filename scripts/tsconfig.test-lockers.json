@@ -1,8 +1,0 @@
-{
-  "compilerOptions": { "outDir": "../.tmp-lockers", "module": "commonjs", "target": "es2020", "skipLibCheck": true, "strict": true, "rootDir": "../lib", "lib": ["es2020", "dom"], "types": [] },
-  "files": [
-    "node-stub.d.ts",
-    "../lib/net/lockers.ts", "../lib/net/lockersTables.ts", "../lib/net/lockerclient.ts", "../lib/game/lockerflow.ts",
-    "../lib/net/roomclient.ts", "../lib/net/hybridTransport.ts", "../lib/net/worldsync.ts", "../lib/net/roomview.ts"
-  ]
-}
