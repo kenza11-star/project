@@ -1,4 +1,0 @@
-{
-  "compilerOptions": { "outDir": "../.tmp-backend", "module": "commonjs", "target": "es2020", "skipLibCheck": true, "strict": false, "rootDir": "../lib", "lib": ["es2020", "dom"], "types": [] },
-  "files": ["node-stub.d.ts", "../lib/auth/identity.ts", "../lib/auth/validate.ts", "../lib/net/roomrules.ts", "../lib/net/protocol.ts", "../lib/character/config.ts", "../lib/ui/playmode.ts", "../lib/net/appupdate.ts"]
-}
