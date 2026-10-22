@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "outDir": "../.tmp-room", "module": "commonjs", "target": "es2020", "skipLibCheck": true, "strict": false, "rootDir": "../lib/net", "lib": ["es2020", "dom"] },
+  "files": ["../lib/net/roompoller.ts", "../lib/net/roomtypes.ts", "../lib/net/roomview.ts", "../lib/net/roomcounts.ts", "../lib/net/roomrules.ts", "../lib/net/protocol.ts"]
+}

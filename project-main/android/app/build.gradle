@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+def gameUrl   = (project.findProperty('GAME_URL') ?: 'https://nightround-web.vercel.app/').toString().trim()
+def extraHost = (project.findProperty('EXTRA_NAV_HOSTS') ?: '').toString().trim()
+if (!gameUrl.startsWith('https://')) {
+    throw new GradleException("GAME_URL harus diawali https:// (WebRTC/mic butuh secure context). Nilai sekarang: " + gameUrl)
+}
+
+android {
+    namespace 'com.nightround.app'
+    compileSdk 33
+    buildToolsVersion '33.0.2'
+
+    defaultConfig {
+        applicationId 'com.nightround.app'
+        minSdk 24
+        targetSdk 33
+        versionCode (project.findProperty('APP_VERSION_CODE') ?: '1').toString().toInteger()
+        versionName (project.findProperty('APP_VERSION_NAME') ?: '1.0.0').toString()
+        buildConfigField 'String', 'GAME_URL', '"' + gameUrl + '"'
+        buildConfigField 'String', 'EXTRA_NAV_HOSTS', '"' + extraHost + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
