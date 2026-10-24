@@ -507,7 +507,7 @@ export class Bunker {
     // metronom: lampu berkedip sesuai urutan (lokal)
     if (this.play) {
       const p = this.play, seq = this.model.simon; p.t += dt;
-      if (p.t >= 0.8 || p.step < 0) { if (p.step >= 0 && p.step < seq.length) { /* lanjut */ } p.t = 0; p.step++; if (p.step >= seq.length) this.play = null; else { this.flash[seq[p.step]] = 0.55; this.d.audio()?.play('flash_click', { pos: { x: LAYOUT.s4[0].x + 1, y: 2, z: LAYOUT.s4[0].z } }); this.d.ix.invalidate(); } }
+      if (p.t >= 1.1 || p.step < 0) { if (p.step >= 0 && p.step < seq.length) { /* lanjut */ } p.t = 0; p.step++; if (p.step >= seq.length) this.play = null; else { this.flash[seq[p.step]] = 0.55; this.d.audio()?.play('flash_click', { pos: { x: LAYOUT.s4[0].x + 1, y: 2, z: LAYOUT.s4[0].z } }); this.d.ix.invalidate(); } }
     }
     for (let c = 0; c < 4; c++) if (this.flash[c] > 0) this.flash[c] = Math.max(0, this.flash[c] - dt);
     for (let i = 0; i < SIMON_COLORS; i++) { const c = this.model.layout4[i]; this.setLamp(this.lampS4[i], COLORS[c].hex, this.flash[c] > 0, 2.2); }

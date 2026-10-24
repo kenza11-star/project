@@ -7,6 +7,7 @@ import { makeRng, type Rng } from './rng';
 export type NoteTopic = 'switch' | 'panel' | 'circuit' | 'glyph' | 'metro';
 /** Fakta yang dikandung note (dipakai tes untuk memastikan note selalu BENAR terhadap puzzle; tidak ditampilkan ke pemain). */
 export type NoteFact =
+  | { t: 'first'; a: number }                       // saklar a adalah yang pertama ditekan
   | { t: 'chain'; a: number; b: number }            // saklar a ditekan tepat sebelum saklar b
   | { t: 'notFirst'; c: number }                    // panel daya: warna c bukan yang pertama
   | { t: 'before'; a: number; b: number }           // panel daya: warna a ditarik sebelum b
@@ -29,6 +30,7 @@ export const ROOM_HINT: Record<string, string> = {
 };
 const GLYPH_HINT = ['tiga sudut', 'tanpa sudut sama sekali', 'empat sudut', 'empat sudut', 'lima ujung runcing', 'dua garis yang saling bersilang'];
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const NUMW: Record<number, string> = { 3: 'tiga', 4: 'empat', 5: 'lima', 6: 'enam' };
 const ord = (i: number) => ['pertama', 'kedua', 'ketiga', 'keempat', 'kelima'][i] ?? String(i + 1);
 
 export function makeHintNotes(seed: number, ctx: NoteCtx): HintNote[] {
@@ -40,6 +42,7 @@ export function makeHintNotes(seed: number, ctx: NoteCtx): HintNote[] {
   const o = ctx.switchOrder;
   if (o.length === 5 && ctx.switchRoomTypes.length === 5) {
     const h = (i: number) => ROOM_HINT[ctx.switchRoomTypes[i]] ?? 'ruangan yang tak kuingat';
+    add('switch', T(`Mulai dari ${h(o[0])}. Selalu dari sana.`, `Saklar pertama ada di ${h(o[0])}. Yang lain menyusul.`), { t: 'first', a: o[0] });
     for (let k = 0; k < 4; k++) {
       const A = h(o[k]), B = h(o[k + 1]);
       add('switch', T(
@@ -70,16 +73,16 @@ export function makeHintNotes(seed: number, ctx: NoteCtx): HintNote[] {
     add('circuit', T(`Cuma ${s} tuas yang perlu turun supaya semua lampu menyala. Sisanya biarkan.`, `Jangan turunkan semuanya. ${s} tuas sudah cukup.`), { t: 'solCount', n: s }); }
 
   // --- III glif: bentuk tromol digambarkan samar (papan dinding tetap diperlukan untuk memilih)
-  { const ds = rng.shuffle([0, 1, 2].slice()).slice(0, 2).sort((x, y) => x - y);
+  { const ds = [0, 1, 2];   // satu note per tromol (dulu 2 dari 3)
     ds.forEach((d, idx) => {
       const g = m.glyph[d], hint = GLYPH_HINT[g];
       add('glyph', idx === 0 ? T(`Tromol ${ord(d)}: bentuknya punya ${hint}.`, `Yang di tromol ${ord(d)}... ${hint}. Hanya itu yang kuingat.`)
-        : T(`Papan yang dicoret itu bohong. Tromol ${ord(d)}: ${hint}.`, `Tromol ${ord(d)} bukan yang dicoret. ${cap(hint)}.`), { t: 'drum', d, g });
+        : idx === 1 ? T(`Tromol ${ord(d)}: ${hint}. Cocokkan dengan papan TANDA.`, `Tromol ${ord(d)} bentuknya ${hint}.`) : T(`Papan yang dicoret itu bohong. Tromol ${ord(d)}: ${hint}.`, `Tromol ${ord(d)} bukan yang dicoret. ${cap(hint)}.`), { t: 'drum', d, g });
     }); }
 
   // --- IV metronom: frekuensi warna + satu kedipan yang bukan warna tertentu
   { const c = rng.pick([...new Set(m.simon)]), n = m.simon.filter((v) => v === c).length;
-    add('metro', T(`Dari lima kedipan, ${cn(c)} muncul ${n} kali. Hitung, jangan menebak.`, `Lampu ${cn(c)} menyala ${n} kali dalam satu putaran.`), { t: 'simonCount', c, n });
+    add('metro', T(`Dari ${NUMW[SIMON_LEN] ?? SIMON_LEN} kedipan, ${cn(c)} muncul ${n} kali. Hitung, jangan menebak.`, `Lampu ${cn(c)} menyala ${n} kali dalam satu putaran.`), { t: 'simonCount', c, n });
     const k = rng.int(0, SIMON_LEN - 1), cc = rng.pick([0, 1, 2, 3].filter((x) => x !== m.simon[k]));
     add('metro', T(`Kedipan ${ord(k)} bukan ${cn(cc)}. Salah satu saja sudah cukup membuatku mengulang dari awal.`, `Kedipan ke-${k + 1}: bukan ${cn(cc)}.`), { t: 'simonNot', k, c: cc }); }
   return out;
