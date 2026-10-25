@@ -1,0 +1,99 @@
+--- a/lib/game/world.ts
++++ b/lib/game/world.ts
+@@ -114,6 +114,24 @@
+ const smooth = (t: number) => t * t * (3 - 2 * t);
+ const dev = process.env.NODE_ENV !== 'production'; // log diagnostik hanya di development
+ 
++// Pemuat GLB dengan deteksi macet (bukan sekadar timeout besar): gagal bila fase UNDUH tidak ada kemajuan selama `stallMs`, atau total melewati `maxMs`
++// (mencakup decode tekstur). Penyebab layar Loading menggantung: GLTFLoader tidak punya timeout, jadi satu request yang macet = Promise tak pernah selesai.
++function loadGlb(url: string, o: { stallMs: number; maxMs: number; onProgress?: (p: number) => void }): Promise<any> {
++  return new Promise((res, rej) => {
++    let done = false; let stallT: ReturnType<typeof setTimeout> | undefined; let maxT: ReturnType<typeof setTimeout> | undefined;
++    const end = (fn: () => void) => { if (done) return; done = true; clearTimeout(stallT); clearTimeout(maxT); fn(); };
++    const arm = () => { clearTimeout(stallT); stallT = setTimeout(() => end(() => rej(new Error('Unduhan macet: ' + url))), o.stallMs); };
++    arm(); maxT = setTimeout(() => end(() => rej(new Error('Pemuatan terlalu lama: ' + url))), o.maxMs);
++    try {
++      new GLTFLoader().load(url, (g) => end(() => res(g)), (e: ProgressEvent) => {
++        if (done) return;
++        if (e.total && e.loaded >= e.total) clearTimeout(stallT); else arm(); // unduhan selesai: tinggal parse/decode (dibatasi maxMs)
++        if (e.total) o.onProgress?.(e.loaded / e.total);
++      }, (err) => end(() => rej(err)));
++    } catch (err) { end(() => rej(err)); }
++  });
++}
++
+ export class GameWorld {
+   readonly scene: THREE.Scene;
+   readonly root: THREE.Object3D;
+@@ -249,13 +267,12 @@
+ 
+   // ------------------------------------------------------------------ load
+   static async load(scene: THREE.Scene, onProgress?: (p: number) => void): Promise<GameWorld> {
+-    // kursi custom dimuat paralel dengan map; bila gagal (file hilang/rusak) kursi bawaan map tetap dipakai
+-    const optional = (url: string): Promise<any> => new Promise((res) => { new GLTFLoader().load(url, res, undefined, () => res(null)); });
+-    const sodaP = optional(CFG.SODA_URL), scpP = optional(CFG.SCP_URL), leverP = optional(CFG.LEVER_URL); // paralel; bila gagal, fitur terkait dilewati (map tetap jalan)
+-    const chairP: Promise<any> = new Promise((res) => { new GLTFLoader().load(CFG.CHAIR_URL, res, undefined, () => res(null)); });
+-    const gltf: any = await new Promise((res, rej) => {
+-      new GLTFLoader().load(CFG.MAP_URL, res, (e: ProgressEvent) => { if (e.total) onProgress?.(e.loaded / e.total); }, rej);
+-    });
++    // Aset TAMBAHAN (kursi, soda, SCP, tuas): gagal/macet -> null, fitur terkait dilewati, map tetap jalan. Aset UTAMA (map): ditunggu, 1x coba ulang otomatis, lalu error + tombol Coba lagi.
++    const optional = (url: string): Promise<any> => loadGlb(url, { stallMs: 20000, maxMs: 60000 }).catch((e) => { console.warn('Aset opsional dilewati:', url, e); return null; });
++    const sodaP = optional(CFG.SODA_URL), scpP = optional(CFG.SCP_URL), leverP = optional(CFG.LEVER_URL); // paralel
++    const chairP: Promise<any> = optional(CFG.CHAIR_URL);
++    const mapOpts = { stallMs: 30000, maxMs: 120000, onProgress };
++    const gltf: any = await loadGlb(CFG.MAP_URL, mapOpts).catch((e) => { console.warn('Map gagal, mencoba sekali lagi:', e); return loadGlb(CFG.MAP_URL, mapOpts); });
+     const chairG = await chairP;
+     const sodaG = await sodaP, scpG = await scpP, leverG = await leverP;
+     const json = gltf.parser.json as GltfJson;
+--- a/components/lobby/PlayScene.tsx
++++ b/components/lobby/PlayScene.tsx
+@@ -65,7 +65,7 @@
+ // `net` = sesi multiplayer online (room Supabase). Tanpa `net` (Single Player / offline) perilaku sama persis dengan sebelumnya.
+ // Dengan `net`: seed dunia berasal dari room, titik spawn = slot room, pemain lain dirender sebagai instance model default masing-masing,
+ // dan posisi lokal dikirim lewat RoomClient (timer sendiri, TIDAK dihentikan oleh menu pause).
+-export default function PlayScene({ roster, onExit, net }: { roster: Slot[]; onExit: () => void; net?: NetSession | null }) {
++export default function PlayScene({ roster, onExit, onRetry, net }: { roster: Slot[]; onExit: () => void; onRetry?: () => void; net?: NetSession | null }) {
+   const cv = useRef<HTMLCanvasElement>(null);
+   const baseRef = useRef<HTMLDivElement>(null);
+   const knobRef = useRef<HTMLDivElement>(null);
+@@ -444,7 +444,11 @@
+       if (!world.ix.activate(ctx)) say('Tidak ada yang bisa dilakukan', 1000);
+     };
+ 
+-    const mvP = CFG.MONSTER_ENABLED ? MonsterView.load(scene, CFG.MONSTER_URL) : Promise.resolve(null); // model monster dimuat paralel dengan map; gagal -> game tanpa monster
++    // model monster OPSIONAL: bila unduhan macet >45 dtk -> lanjut tanpa monster (hasil yang datang terlambat langsung dibuang)
++    const mvP: Promise<MonsterView | null> = CFG.MONSTER_ENABLED ? new Promise((res) => {
++      let late = false; const t = setTimeout(() => { late = true; res(null); }, 45000);
++      MonsterView.load(scene, CFG.MONSTER_URL).then((m) => { if (late) m?.dispose(); else { clearTimeout(t); res(m); } }, () => { clearTimeout(t); res(null); });
++    }) : Promise.resolve(null); // model monster dimuat paralel dengan map; gagal -> game tanpa monster
+     GameWorld.load(scene, () => { /* layar Loading hanya tampil sampai map selesai; tanpa persentase */ })
+       .then(async (w) => {
+         const mv = await mvP;
+@@ -996,7 +1000,7 @@
+       })()}
+       {msg && <div className="playmsg">{msg}</div>}
+       <LoadingScreen active={status === 'loading'} />
+-      {status === 'error' && <div className="playcover">Gagal memuat map.<button className="gbtn" onClick={onExit}>Kembali</button></div>}
++      {status === 'error' && <div className="playcover">Gagal memuat map.{onRetry && <button className="gbtn" onClick={onRetry}>Coba lagi</button>}<button className="gbtn" onClick={onExit}>Kembali</button></div>}
+       {status === 'escaped' && (
+         <div className="playcover">
+           ESCAPED
+--- a/components/lobby/Lobby.tsx
++++ b/components/lobby/Lobby.tsx
+@@ -48,6 +48,7 @@
+ export default function Lobby() {
+   const [profile, setProfile] = useState<Profile>(() => loadProfile());
+   const [social, setSocial] = useState<S.Social>(() => ({ ...S.initialSocial, ...load('social', {}) }));
++  const [playTry, setPlayTry] = useState(0); // naik = PlayScene dipasang ulang (tombol 'Coba lagi' saat map gagal dimuat)
+   // Sistem karakter terkunci (lib/character/config.ts): model tersimpan diabaikan, semua pemain memakai model default yang sama.
+   const charSel = CHARACTER_SELECTION_ENABLED;
+   const [meta, setMeta] = useState<Meta | null>(() => (charSel ? load<Meta | null>('model', null) : null));
+@@ -310,7 +311,7 @@
+   const signOut = () => { if (lobbyRoom) void leaveRoom(lobbyRoom.roomId).catch(() => {}); setLobbyRoom(null); authProvider.logout().catch(() => {}); void resetSupabase(); saveSession(null); setSession(null); };
+ 
+   const leaveGame = () => { setPlayMode(false); unlockLandscape(); setPlaying(false); const n = net; setNet(null); void n?.leave(); }; // kembali ke lobby: orientasi dibebaskan, layout portrait dipulihkan
+-  if (playing) return <PlayScene roster={roster} net={net} onExit={leaveGame} />;
++  if (playing) return <PlayScene key={playTry} roster={roster} net={net} onExit={leaveGame} onRetry={() => setPlayTry((n) => n + 1)} />;
+ 
+   return (
+     <>

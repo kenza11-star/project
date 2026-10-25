@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "outDir": "../.tmp-voice", "module": "commonjs", "target": "es2020", "skipLibCheck": true, "strict": false, "rootDir": "../lib/net", "lib": ["es2020", "dom"], "types": [] },
+  "files": ["../lib/net/voice.ts", "../lib/net/voicemsg.ts", "../scripts/node-stub.d.ts"]
+}
