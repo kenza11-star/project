@@ -12,7 +12,7 @@ export interface DragEnv {
   /** Area terlarang untuk tujuan (spawn, pintu keluar, tangga, ayunan pintu): titik tujuan harus di luar semuanya. */
   avoid: readonly { x: number; z: number; r: number }[];
   /** STAGE 2: titik pintu penjara di lantai atas (ujung tangga). Ada = korban diseret ke sini (lewat tangga bila perlu), lalu dipindah ke slot penjara. */
-  prison?: { x: number; z: number; lv: number };
+  prison?: { x: number; z: number; lv: number; /** titik berdiri monster untuk slot i (jalur nyata, tanpa teleport) */ slotGoal?: (slot: number) => { x: number; z: number } };
 }
 export interface DragPlan { room: string; goal: Pt; path: Pt[]; length: number; lv?: number }
 
@@ -29,7 +29,7 @@ export function safeDragPoint(nav: MonsterNav, cw: CollisionWorld, env: DragEnv,
 }
 
 /** STAGE 2: rencana seret ke pintu penjara. Tanpa jalur terpilih lebih dulu: monster memakai nav normal (goTo, tangga bila beda lantai); bila terhalang seretan berhenti & korban tetap dipindah (fade). */
-export function planPrisonDrag(p: NonNullable<DragEnv['prison']>): DragPlan { return { room: 'prison', goal: { x: p.x, z: p.z }, path: [], length: 0, lv: p.lv }; }
+export function planPrisonDrag(p: NonNullable<DragEnv['prison']>, slot = -1): DragPlan { const g = p.slotGoal && slot >= 0 ? p.slotGoal(slot) : { x: p.x, z: p.z }; return { room: 'prison', goal: { x: g.x, z: g.z }, path: [], length: 0, lv: p.lv }; }
 
 /** Fisher-Yates dengan rng sim (deterministik per seed). */
 function shuffled<T>(a: readonly T[], rng: Rng): T[] { const o = a.slice(); for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(rng.next() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; }

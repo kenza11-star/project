@@ -181,6 +181,7 @@ export const MONSTER_DRAG_ENABLED = true;   // false = perilaku lama (monster pi
 export const MONSTER_DRAG_START = 3.8;      // detik setelah tangkapan sebelum seretan mulai (> JS_TOTAL 3,6 dtk: jumpscare selesai dulu)
 export const MONSTER_DRAG_SPEED = 1.3;      // kecepatan menyeret (lebih lambat dari patroli 1,6)
 export const MONSTER_DRAG_MAX_SECONDS = 90; // batas waktu seretan; lewat ini seretan dihentikan di tempat (korban tetap tertangkap)
+export const MONSTER_DRAG_PRISON_SECONDS = 160; // seret ke penjara: rute nyata (tangga + koridor) lebih panjang dari seretan biasa
 export const MONSTER_DRAG_MIN_DIST = 10;    // tujuan minimal sejauh ini (garis lurus) dari titik tangkapan
 export const MONSTER_DRAG_MAX_PATH = 110;   // jalur seret maksimal (m) agar tidak melebihi batas waktu
 export const MONSTER_DRAG_CLEAR = 0.55;     // titik tujuan harus punya ruang bebas sebesar ini dari dinding/furnitur (pemain 0,30 + margin)

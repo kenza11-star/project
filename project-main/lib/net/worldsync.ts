@@ -20,6 +20,7 @@ const isPzSnap = (x: unknown): x is PzSnap => {
 
 export type NetWorldEvent =
   | { k: 'door'; i: number; o: 0 | 1; ts?: number }
+  | { k: 'pdoor'; id: 0 | 1; o: 0 | 1 }   // pintu jeruji penjara (0 = penghubung di dinding timur, 1 = sel); sekali jalan, tidak disimpan
   | { k: 'taken'; id: string }
   | { k: 'lock'; id: string }
   | { k: 'cont'; id: string }
@@ -50,7 +51,9 @@ export function sanitizeWorldMsg(raw: unknown): WorldMsg | null {
   for (const e of r.ev.slice(0, MAX_WORLD_EVENTS)) {
     if (!e || typeof e !== 'object') continue;
     const x = e as Record<string, unknown>;
-    if (x.k === 'door') {
+    if (x.k === 'pdoor') {
+      if ((x.id === 0 || x.id === 1) && (x.o === 0 || x.o === 1)) out.push({ k: 'pdoor', id: x.id, o: x.o });
+    } else if (x.k === 'door') {
       if (typeof x.i === 'number' && Number.isInteger(x.i) && x.i >= 0 && x.i < 1000 && (x.o === 0 || x.o === 1) && typeof x.ts === 'number' && Number.isFinite(x.ts)) out.push({ k: 'door', i: x.i, o: x.o, ts: x.ts });
     } else if ((x.k === 'taken' || x.k === 'lock' || x.k === 'cont') && typeof x.id === 'string' && ID_RE.test(x.id)) out.push({ k: x.k, id: x.id });
     else if ((x.k === 'mission' || x.k === 'mreq') && isMissionId(x.id)) out.push({ k: x.k, id: x.id });
@@ -90,6 +93,7 @@ export class WorldSync {
     if (e.k === 'pzreq') return { v: 1, t: 'w', ev: [{ k: 'pzreq', t: e.t, i: e.i }] };
     if (e.k === 'pz') { if (this.pz && e.v <= this.pz.v) return null; this.pz = { v: e.v, a: e.a, b: e.b, c: e.c, d: e.d, f: e.f, g: e.g ?? 0 }; return { v: 1, t: 'w', ev: [e] }; }
     if (e.k === 'swreq') return { v: 1, t: 'w', ev: [{ k: 'swreq', i: e.i }] };
+    if (e.k === 'pdoor') return { v: 1, t: 'w', ev: [{ k: 'pdoor', id: e.id, o: e.o }] };
     if (e.k === 'rreq' || e.k === 'rs' || e.k === 'rok' || e.k === 'ping' || e.k === 'shout') return { v: 1, t: 'w', ev: [e] };   // STAGE 3: sekali jalan, tidak disimpan (bukan bagian digest)
     if (e.k === 'sw') { if (this.sw && e.v <= this.sw.v) return null; this.sw = { v: e.v, p: e.p }; return { v: 1, t: 'w', ev: [e] }; }
     const set = this.sets[e.k];
@@ -124,7 +128,7 @@ export class WorldSync {
         this.pz = { v: e.v, a: e.a, b: e.b, c: e.c, d: e.d, f: e.f, g: e.g ?? 0 }; eff.push(e);
       } else if (e.k === 'rs' || e.k === 'rok') {
         if (fromHost) eff.push(e);                           // STAGE 3: hanya host yang menentukan; tidak digabung
-      } else if (e.k === 'mreq' || e.k === 'swreq' || e.k === 'pzreq' || e.k === 'rreq' || e.k === 'ping' || e.k === 'shout') {
+      } else if (e.k === 'mreq' || e.k === 'swreq' || e.k === 'pzreq' || e.k === 'rreq' || e.k === 'ping' || e.k === 'shout' || e.k === 'pdoor') {
         eff.push(e);                                         // dikerjakan host saja (World.applyNet); tidak digabung
       } else if (e.k === 'sw') {
         if (!fromHost || (this.sw && e.v <= this.sw.v)) continue;   // hanya host yang menentukan; versi lama/sama diabaikan

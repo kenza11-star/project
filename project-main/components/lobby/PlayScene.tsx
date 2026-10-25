@@ -578,10 +578,12 @@ export default function PlayScene({ roster, onExit, onRetry, net }: { roster: Sl
       setDeadScreen(0, false); setDeadReady(false);
       S.status = 'play'; setStatus('play'); force();   // kebal CAPTURE_GRACE dihitung otoritas saat flag 'tertangkap' hilang (monsterctl.trackWake)
     };
+    let monSeed = -1, monNavPrison = false;   // STAGE B: nav monster lantai atas harus mencakup koridor + penjara (tersambung fisik); bila penjara baru selesai dimuat sesudah monster dibuat, bangun ulang sekali
     const setupMonster = (seed: number) => {
       capAudio.clear(); mctl?.dispose(); mctl = null; js = null; jsFrame = null; respawnIn = 0; monStep = 0; dragMode = 'none'; dragWait = 0; dragTrail.clear(); mview?.endGrab(); jsFxHide(); if (jsMuffled && !wake) audio.setMuffle(0); jsMuffled = false; faintBeat.update(0, 0); setDeadScreen(0, false); setDeadReady(false);
       if (!CFG.MONSTER_ENABLED || !world || !mview || !mview.ready) return;
       const nav = world.buildMonsterNav(), top = world.stairTop(); if (!nav || !top) return;   // lantai atas tidak terjangkau: tanpa monster
+      monSeed = seed; monNavPrison = world.prisonOn;
       const w = world;
       const lo = CFG.MONSTER_TWO_FLOORS ? w.buildMonsterNavLower() : null, st = w.stair;   // dua lantai: lantai bawah + tangga (null -> hanya lantai atas)
       const multi = lo && st ? { navLo: lo, stair: st } : undefined;
@@ -672,7 +674,7 @@ export default function PlayScene({ roster, onExit, onRetry, net }: { roster: Sl
         w.onTeleport = () => { pos.yaw = player.yaw; pos.pitch = 0; const f = fadeRef.current; if (f) { f.style.transition = 'none'; f.style.opacity = '1'; requestAnimationFrame(() => requestAnimationFrame(() => { f.style.transition = 'opacity .9s ease-out'; f.style.opacity = '0'; })); } }; w.onScare = () => { scareFx.trigger(); }; mview = mv;
         // Loker/lemari online: server memutuskan 1 pemain per loker (lib/net/lockers.ts). Single Player: gate null -> sembunyi lokal seperti sebelumnya.
         if (net) { const lk = net.lockers; w.lockerNet = { selfId: net.client.selfId, ownerOf: (k) => lk.ownerOf(k), keyOf: (u) => lk.keyOf(u), claim: (k) => lk.claim(k), release: (k) => lk.release(k), hold: (k, f) => lk.hold(k, f), stopHold: () => lk.stopHold(), alive: () => S.status === 'play' }; }
-        void w.loadPrison();   // penjara: async di latar belakang (STAGE 2: dipakai online dan solo untuk menggantung korban)
+        void w.loadPrison().then(() => { if (!cancelled && world === w && monSeed >= 0 && !monNavPrison && w.prisonOn) setupMonster(monSeed); });   // penjara: async di latar belakang; nav monster dibangun ulang bila perlu
         beginRun();
       })
       .catch((e) => { console.error(e); if (!cancelled) { S.status = 'error'; setStatus('error'); } });

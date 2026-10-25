@@ -92,8 +92,8 @@ export const COLORS: readonly ColorDef[] = Object.freeze([
   { id: 'KUNING', css: '#f4d233', hex: 0xf4d233 }, { id: 'PUTIH', css: '#f2f0e4', hex: 0xf2f0e4 },
 ]);
 export const GLYPHS: readonly string[] = Object.freeze(['SEGITIGA', 'LINGKARAN', 'KOTAK', 'BELAH KETUPAT', 'BINTANG', 'SILANG']);
-export const ORDER_N = 5, CIRC_LEVERS = 5, CIRC_LAMPS = 5, CIRC_FULL = 31, DRUMS = 3, SIMON_COLORS = 4, SIMON_LEN = 5, CODE_LEN = 4;
-export const GLYPH_SLOTS = 5;
+export const ORDER_N = 5, CIRC_LEVERS = 5, CIRC_LAMPS = 5, CIRC_FULL = 31, DRUMS = 3, SIMON_COLORS = 4, SIMON_LEN = 4, CODE_LEN = 4;   // SIMON_LEN 4 (dulu 5): urutan metronom lebih pendek
+export const GLYPH_SLOTS = 5, DECOYS = 1;   // 5 tempat papan, 3 asli + 1 palsu (dicoret); 1 tempat kosong disembunyikan
 /** Panel PIN pintu rahasia (belakang tangga): 3 saklar, tiap saklar memutar 1 digit 0-9; tombol CEK mengonfirmasi. */
 export const PIN_LEN = 3;
 export type Station = 1 | 2 | 3 | 4;
@@ -138,20 +138,17 @@ const posOf = (order: number[]) => { const p = new Array(order.length).fill(0); 
 export function countOrders(clues: OrderClue[]): number {
   let n = 0; for (const o of allOrders()) { const p = posOf(o); if (clues.every((c) => clueHolds(c, p))) n++; } return n;
 }
-/** Susun petunjuk benar-semua yang hanya menyisakan SATU urutan (jawaban pasti tunggal & adil), lalu buang yang mubazir. */
+/** Susun petunjuk benar-semua yang hanya menyisakan SATU urutan (jawaban pasti tunggal & adil), lalu buang yang mubazir.
+ *  Versi lebih mudah: selalu ada SATU jangkar posisi mutlak (PERTAMA / TERAKHIR / TENGAH), tanpa pernyataan negatif "tidak pernah berurutan". */
 export function makeOrderClues(order: number[], rng: Rng): OrderClue[] {
   const pos = posOf(order), pool: OrderClue[] = [];
-  for (let a = 0; a < ORDER_N; a++) {
-    pool.push({ t: 'first', a }, { t: 'last', a }, { t: 'mid', a });
-    for (let b = 0; b < ORDER_N; b++) if (a !== b) pool.push({ t: 'before', a, b }, { t: 'after1', a, b }, ...(a < b ? [{ t: 'apart', a, b } as OrderClue] : []));
-  }
+  for (let a = 0; a < ORDER_N; a++) for (let b = 0; b < ORDER_N; b++) if (a !== b) pool.push({ t: 'before', a, b }, { t: 'after1', a, b });
+  const anchor: OrderClue = rng.pick([{ t: 'first', a: order[0] }, { t: 'last', a: order[ORDER_N - 1] }, { t: 'mid', a: order[2] }] as OrderClue[]);
   const truth = rng.shuffle(pool.filter((c) => clueHolds(c, pos)));
-  // bobot: pernyataan relasi lebih dulu (lebih 'berpikir'), pernyataan posisi mutlak belakangan
-  const rank = (c: OrderClue) => (c.t === 'first' || c.t === 'last' || c.t === 'mid' ? 1 : 0);
-  truth.sort((x, y) => rank(x) - rank(y) || 0);
-  const chosen: OrderClue[] = [];
+  truth.sort((x, y) => (x.t === 'after1' ? 0 : 1) - (y.t === 'after1' ? 0 : 1));   // "TEPAT SETELAH" paling konkret: lebih dulu
+  const chosen: OrderClue[] = [anchor];
   for (const c of truth) { if (countOrders(chosen) === 1) break; chosen.push(c); }
-  for (let i = chosen.length - 1; i >= 0; i--) { const rest = chosen.filter((_, j) => j !== i); if (countOrders(rest) === 1) chosen.splice(i, 1); }
+  for (let i = chosen.length - 1; i >= 1; i--) { const rest = chosen.filter((_, j) => j !== i); if (countOrders(rest) === 1) chosen.splice(i, 1); }
   for (const c of truth) { if (chosen.length >= 4) break; if (!chosen.includes(c)) chosen.push(c); }   // minimal 4 baris agar papan terbaca seperti log nyata
   return rng.shuffle(chosen);
 }
@@ -201,9 +198,9 @@ export function makePuzzleModel(seed: number): PuzzleModel {
   const start = CIRC_FULL ^ xorMasks(masks, solution2);
   // III
   const r3 = R(0x0613f003), glyph = r3.shuffle([0, 1, 2, 3, 4, 5]).slice(0, DRUMS);
-  const drum0 = glyph.map((g) => { let v; do { v = r3.int(0, GLYPHS.length - 1); } while (v === g); return v; });
+  const drum0 = glyph.map((g) => (g - r3.int(1, 3) + GLYPHS.length) % GLYPHS.length);   // awal tromol 1-3 putaran dari jawaban (dulu acak: sampai 5 putaran)
   const slots = r3.shuffle([0, 1, 2, 3, 4]), slotTrue = slots.slice(0, DRUMS);
-  const decoy = slots.slice(DRUMS).map((slot) => ({ slot, glyph: r3.int(0, GLYPHS.length - 1) }));
+  const decoy = slots.slice(DRUMS, DRUMS + DECOYS).map((slot) => ({ slot, glyph: r3.int(0, GLYPHS.length - 1) }));   // papan palsu: 1 (dulu 2); slot sisanya tidak dipasang
   // IV
   const r4 = R(0x0511a004), layout4 = r4.shuffle([0, 1, 2, 3]); let simon: number[];
   do { simon = Array.from({ length: SIMON_LEN }, () => r4.int(0, SIMON_COLORS - 1)); } while (new Set(simon).size < 3 || simon.some((v, i) => i >= 2 && v === simon[i - 1] && v === simon[i - 2]));
@@ -278,7 +275,7 @@ export class RoomPuzzle {
     if (!Number.isInteger(i) || i < 0 || i >= SIMON_COLORS || this.doneAt(4)) return 'ignored';
     this.v++;
     if (this.m.simon[this.d] === this.m.layout4[i]) { this.d++; if (this.d >= SIMON_LEN) { this.f |= 8; return 'done'; } return 'ok'; }
-    this.d = 0; return 'reset';
+    this.d = Math.max(0, this.d - 1); return 'reset';   // salah = mundur SATU langkah (dulu ulang dari nol); 'reset' tetap dipakai sebagai tanda salah untuk umpan balik
   }
   /** Tekan generik (dipakai host untuk permintaan jaringan). */
   press(st: Station, i: number): PzResult { return st === 1 ? this.press1(i) : st === 2 ? this.flip2(i) : st === 3 ? this.turn3(i) : this.pick4(i); }

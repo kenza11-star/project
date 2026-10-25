@@ -7,6 +7,7 @@ import type { MonsterNav, Pt } from './monsternav';
 import { makeRng, type Rng } from './rng';
 import { stairHeight, stairU, STAIR_SPEED_MUL, type StairDef } from './stairs';
 import { planDrag, planPrisonDrag, type DragEnv, type DragPlan } from './dragplan';
+import { inPrison as inPrisonZone } from './prisonroom';
 
 export type MonState = 'patrol' | 'watch' | 'investigate' | 'chase' | 'search' | 'catch' | 'drag';
 /** Urutan = nomor di snapshot jaringan: JANGAN diubah, hanya tambah di akhir ('drag' = TAHAP 2, menyeret korban). */
@@ -48,6 +49,7 @@ export class MonsterSim {
   readonly rng: Rng; readonly waypoints: Pt[] = []; wp = 0;
   lastSeen: Pt | null = null;
   private path: Pt[] = []; private pi = 0; private repathT = 0; private timer = 0; private lostT = 0; private stuckT = 0; private clock = 0; private baseYaw = 0; private goal: Pt | null = null; private climbDir = 0;
+  private dragSlot = -1; private dragRetry = 0;   // STAGE B: slot penjara tujuan (diberikan otoritas sesudah tangkapan) & percobaan ulang rute
   private dragPlan: DragPlan | null = null; private dragGoal: Pt | null = null; private dragLv = 0; quiet = 0;   // dragLv = lantai tujuan seret; quiet = detik monster tidak peduli pemain (solo bebas)   // rencana seret (dipilih saat menangkap) & tujuan yang sedang dituju
   private gateT = 0; private backT = 0; private bx = 0; private bz = 0; private sw = { x: 0, z: 0, t: 0, n: 0 }; private safe: Pt | null = null;   // gerbang pintu, mundur, jendela deteksi macet (1,5 dtk), sel aman terakhir
   private noCross = 0;   // sampai kapan tidak menuju waypoint di lantai lain (tangga tak terjangkau dari sini)
@@ -60,6 +62,7 @@ export class MonsterSim {
     const up: Pt[] = [];
     for (let tries = 0; tries < 800 && up.length < 12; tries++) {
       const p = this.nav.randomPoint(this.rng);
+      if (inPrisonZone(p.x, p.z, 0.5)) continue;   // nav lantai atas bisa mencakup koridor + penjara (tersambung fisik): patroli acak tidak masuk ke sana; hanya seretan yang masuk
       if (up.every((q) => Math.hypot(q.x - p.x, q.z - p.z) >= 7)) up.push(p);
     }
     // urutan kunjungan: tetangga terdekat mulai dari titik terjauh dari 'awayFrom' (mis. ujung tangga) supaya pemain tidak langsung bertemu monster
@@ -147,7 +150,7 @@ export class MonsterSim {
       if (d <= CFG.MONSTER_CATCH_RADIUS && this.catchLos(p.x, p.z)) {
         this.set('catch', ev); this.targetId = p.id; this.speed = 0; this.yaw = Math.atan2(p.x - this.x, p.z - this.z);
         // TAHAP 2: pilih tujuan seret SEKARANG (otoritas yang memutuskan). Tidak ada tujuan valid / di tangga / fitur mati -> perilaku lama (pindah & patroli).
-        this.dragPlan = !CFG.MONSTER_DRAG_ENABLED || !this.drag ? null : this.drag.prison ? planPrisonDrag(this.drag.prison) : !this.onStairs ? planDrag(this.navOf(this.level), this.cw, this.drag, { x: this.x, z: this.z }, this.level, this.rng) : null;   // STAGE 2: tujuan = pintu penjara (tangga/pintu lantai atas)
+        this.dragPlan = !CFG.MONSTER_DRAG_ENABLED || !this.drag ? null : this.drag.prison ? planPrisonDrag(this.drag.prison, this.dragSlot) : !this.onStairs ? planDrag(this.navOf(this.level), this.cw, this.drag, { x: this.x, z: this.z }, this.level, this.rng) : null;   // STAGE 2: tujuan = pintu penjara (tangga/pintu lantai atas)
         this.timer = this.dragPlan ? CFG.MONSTER_DRAG_START : CFG.MONSTER_RESET_TIME;
         ev.push({ type: 'catch', id: p.id, drag: !!this.dragPlan }); return ev;
       }
@@ -161,11 +164,13 @@ export class MonsterSim {
     }
     return ev;
   }
+  /** STAGE B: otoritas menetapkan slot penjara untuk korban yang baru ditangkap; tujuan seret = titik berdiri monster di depan slot itu. */
+  setDragSlot(slot: number) { this.dragSlot = slot; if (this.dragPlan && this.drag?.prison) this.dragPlan = planPrisonDrag(this.drag.prison, slot); }
   private nextWp(): number { for (let k = 1; k <= this.waypoints.length; k++) { const i = (this.wp + k) % this.waypoints.length; if ((this.bad.get(i) ?? 0) <= this.clock && !(this.noCross > this.clock && (this.wpLv[i] ?? this.level) !== this.level)) return i; } return (this.wp + 1) % this.waypoints.length; }
   // ---- seret (TAHAP 2): jumpscare selesai -> monster berjalan ke tujuan (memakai goTo/nav/pintu yang sama dengan patroli) -> berhenti -> kembali patroli ----
   private beginDrag(ev: MonEvent[]) {
-    const plan = this.dragPlan!; this.dragPlan = null;
-    this.set('drag', ev); this.dragLv = plan.lv ?? this.level; this.dragGoal = plan.goal; this.path = plan.path; this.pi = 0; this.goal = { x: plan.goal.x, z: plan.goal.z }; this.repathT = 1.5; this.timer = CFG.MONSTER_DRAG_MAX_SECONDS;
+    const plan = this.dragPlan!; this.dragPlan = null; this.dragRetry = 0;
+    this.set('drag', ev); this.dragLv = plan.lv ?? this.level; this.dragGoal = plan.goal; this.path = plan.path; this.pi = 0; this.goal = { x: plan.goal.x, z: plan.goal.z }; this.repathT = 1.5; this.timer = plan.room === 'prison' ? CFG.MONSTER_DRAG_PRISON_SECONDS : CFG.MONSTER_DRAG_MAX_SECONDS;
     ev.push({ type: 'drag', phase: 'start', id: this.targetId, x: this.x, z: this.z });
   }
   private runDrag(dt: number, ev: MonEvent[]) {
@@ -264,7 +269,9 @@ export class MonsterSim {
       this.wp = this.nextWp();
     }
     else if (this.state === 'chase') this.lostT = CFG.MONSTER_LOSE_TIME;
-    else if (this.state === 'drag') this.endDrag(ev, 'abort');   // jalur terblokir (pintu terkunci / furnitur bergeser): berhenti di tempat
+    else if (this.state === 'drag') {   // jalur terblokir (pintu terkunci / furnitur bergeser): coba cari rute lagi (maks 3x), baru berhenti di tempat. TIDAK ada teleport.
+      if (this.dragGoal && this.dragRetry++ < 3) { this.goal = { x: this.dragGoal.x, z: this.dragGoal.z }; this.repathT = 1.0; } else this.endDrag(ev, 'abort');
+    }
     else { this.set('search', ev); this.timer = 2; this.baseYaw = this.yaw; }
   }
 }

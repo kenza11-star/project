@@ -24,7 +24,7 @@ import { SwitchPuzzle, switchOrder, planSwitches, type SwitchSpot } from './swit
 import { makeHintNotes, splitNotes } from './notes';
 import { Bunker } from './bunker';
 import { PrisonRoom, disposeTree } from './prison';
-import { PRISON_AREA, PRISON_LEVEL, PRISON_FLOOR_Y, PRISON_ENTRY, PRISON_GATE, PRISON_NAV_SEED, PRISON_SLOTS } from './prisonroom';
+import { PRISON_LEVEL, PRISON_SLOTS, inPrison as inPrisonZone, slotStand } from './prisonroom';
 import { makePuzzleModel, RoomPuzzle, stairHatch, checkCode, PIN_UI, hatchLocal, pinNoteText, bunkerWalls, BUNKER_AREA, LAYOUT as BK_LAYOUT, type HatchSpot, type PuzzleModel, type Station } from './puzzleroom';
 import { lockerKeyOf } from '../net/lockers';
 import type { LockerGate } from '../net/lockerclient';
@@ -1118,6 +1118,7 @@ export class GameWorld {
   }
   /** Terapkan satu event dunia dari pemain lain. Idempoten; aman dipanggil untuk benda/pintu yang belum ada. */
   applyNet(e: NetWorldEvent): void {
+    if (e.k === 'pdoor') { this.prison?.setRemote(e.id, e.o); return; }   // pintu jeruji penjara dari klien lain
     if (e.k === 'door') {
       const d = this.doors[e.i]; if (!d || d.target === e.o) return;
       if (e.o === 1 && !d.unlocked) return;                                   // pintu tersegel/exit terkunci tidak bisa dibuka lewat jaringan
@@ -1276,51 +1277,25 @@ export class GameWorld {
     try {
       const g = await loadGlb(CFG.PRISON_URL, { stallMs: 20000, maxMs: 60000 });
       if (this.prDead) { disposeTree(g.scene); return; }   // world sudah dibuang saat unduhan berjalan
-      this.prison = new PrisonRoom({ scene: this.scene, cw: this.cw, ix: this.ix, hitMat: this.pickHitMat, model: g.scene, audio: () => this.audio as any, enter: () => this.enterPrison(), leave: () => this.leavePrison() });
+      this.prison = new PrisonRoom({ scene: this.scene, cw: this.cw, ix: this.ix, hitMat: this.pickHitMat, model: g.scene, audio: () => this.audio as any, sendDoor: (id, o) => this.netSink?.({ k: 'pdoor', id, o }) });
       if (!this.nBaseLights) this.nBaseLights = this.lightSrcs.length;   // lampu penjara bukan lampu map (penempatan dekor memakai lampu map saja)
       for (const l of this.prison.lights) { const s = { pos: new THREE.Vector3(l.x, l.y, l.z), color: new THREE.Color(l.c), intensity: l.i * 2.4 * CFG.LIGHT_SCALE, range: l.r, flicker: l.flicker, chance: 0.5 }; this.lightSrcs.push(s); this.lightBase.push({ i: s.intensity, f: s.flicker, c: s.chance }); }
       this.fx.setCount(this.lightSrcs.length);
     } catch (e) { console.warn('Penjara dilewati (aset tidak termuat):', e); }
     finally { this.prLoading = false; }
   }
-  private setInPrison(v: boolean) {
-    this.inPr = v;
-    this.cw.walk[PRISON_LEVEL] = v ? { minx: PRISON_AREA.minx - 0.3, maxx: PRISON_AREA.maxx + 0.3, minz: PRISON_AREA.minz - 0.3, maxz: PRISON_AREA.maxz + 0.3 } : this.md.mezz ? { ...this.md.mezz } : null;
-  }
-  /** Lewat pintu baja di ujung tangga lantai 2: pindah ke antechamber penjara. */
-  enterPrison() {
-    const p = this.pl; if (!p || !this.prison || this.inPr || p.level !== PRISON_LEVEL || p.onStairs) return;
-    this.setInPrison(true); const a = PRISON_ENTRY.arrive;
-    p.x = a.x; p.z = a.z; p.yaw = a.yaw; p.pitch = 0; p.level = PRISON_LEVEL; p.y = PRISON_FLOOR_Y; p.onStairs = false;
-    this.audio?.play('door_open', { pos: { x: p.x, y: p.y + 1.2, z: p.z } });
-    this.ix.invalidate(); this.onTeleport?.('in');
-  }
-  /** STAGE 2: korban dipindah ke slot penjara (layar sudah gelap) menghadap pintu sel. null = penjara belum dimuat (pemanggil memakai alur lama). */
+  private setInPrison(v: boolean) { this.inPr = v; }   // STAGE B: penjara tersambung fisik (walkEx di prison.ts); tidak ada lagi pertukaran batas jalan / teleport
+  /** STAGE B: korban sudah DISERET lewat jalur nyata (gedung -> pintu jeruji -> koridor -> sel) sampai dekat slot (<= 3,2 m); di sini hanya merapikan ke titik ikat (jarak pendek).
+   *  Jauh dari slot (seretan terhenti/tidak ada rute) -> null: TIDAK ada teleport, pemanggil membangunkan korban di tempat. */
   bindPrison(slot: number): { slot: number; yaw: number } | null {
     const p = this.pl, n = PRISON_SLOTS.length; if (!p || !this.prison) return null;
     const i = ((Math.floor(slot) % n) + n) % n, s = PRISON_SLOTS[i];
-    this.setInPrison(true); p.x = s.x; p.z = s.z; p.yaw = s.yaw; p.pitch = 0; p.level = PRISON_LEVEL; p.y = s.y; p.onStairs = false;
+    if (p.level !== PRISON_LEVEL || Math.hypot(p.x - s.x, p.z - s.z) > 3.2) return null;
+    this.inPr = true; p.x = s.x; p.z = s.z; p.yaw = s.yaw; p.pitch = 0; p.y = s.y; p.onStairs = false;
     this.ix.invalidate(); return { slot: i, yaw: s.yaw };
   }
-  /** Keluar lewat pintu di antechamber: kembali ke ujung tangga lantai 2. */
-  leavePrison() {
-    const p = this.pl; if (!p || !this.inPr) return;
-    this.setInPrison(false); const a = PRISON_GATE.arrive;
-    p.x = a.x; p.z = a.z; p.yaw = a.yaw; p.pitch = 0; p.level = PRISON_LEVEL; p.y = PRISON_FLOOR_Y; p.onStairs = false;
-    this.audio?.play('door_open', { pos: { x: p.x, y: p.y + 1.2, z: p.z } });
-    this.ix.invalidate(); this.onTeleport?.('out');
-  }
-  /** Navigasi monster di dalam penjara (antechamber + sel; pintu sel tidak dianggap penghalang, monster membukanya). TAHAP 2 memakainya untuk menyeret korban. null bila belum dimuat. */
-  buildPrisonNav(): MonsterNav | null {
-    if (!this.prison) return null;
-    const saved = this.cw.walk[PRISON_LEVEL];
-    this.cw.walk[PRISON_LEVEL] = { ...PRISON_AREA };   // NavGrid mengikuti batas jalan level: sementara = area penjara
-    try {
-      const fixed = this.cw.obbs.filter((o) => o.level === PRISON_LEVEL && !o.id.startsWith('door:') && o.id !== 'prison-door');
-      const nav = new MonsterNav(this.cw, PRISON_LEVEL, fixed, PRISON_NAV_SEED);
-      return nav.count > 200 ? nav : null;
-    } finally { this.cw.walk[PRISON_LEVEL] = saved; }
-  }
+  /** Bebas dari ikatan: pemain tetap di tempatnya lalu berjalan keluar lewat koridor (tanpa teleport). */
+  leavePrison() { this.ix.invalidate(); }
   /** Panel PIN belakang tangga: i = 0..2 putar digit, 3 = CEK. Host = otoritas; benar -> openSecret(), salah -> digit reset + alarm. */
   private pinAct(i: number) {
     if (!this.room) return;
@@ -2032,6 +2007,7 @@ export class GameWorld {
       if (b.i >= b.steps.length) { this.bo = null; this.setLightMul(1); } else this.setLightMul(b.steps[b.i][1]);
     }
     this.bunker?.update(dt, player.x, player.z);
+    this.inPr = !!this.prison && player.level === PRISON_LEVEL && !player.onStairs && inPrisonZone(player.x, player.z, 0);   // penjara tersambung fisik: status 'di penjara' mengikuti posisi
     this.prison?.update(dt, player.x, player.z, player.level, this.monsterPos?.() ?? null);
     this.updateLights(dt, player);
     // event horor acak (jarang, tak terduga, selalu aman)
@@ -2167,8 +2143,8 @@ export class GameWorld {
   /** Navigasi lantai atas dari kondisi collision SAAT INI (furnitur acak sudah ditempatkan); dipanggil setelah startRun. null bila lantai atas tidak terjangkau. */
   buildMonsterNav(): MonsterNav | null {
     const S = this.md.stair, lv = CFG.MONSTER_LEVEL; if (!S) return null;
-    const fixed = this.cw.obbs.filter((o) => o.level === lv && !o.id.startsWith('door:'));
-    const nav = new MonsterNav(this.cw, lv, fixed, { x: S.bx + S.sgn * S.run + 0.6, z: S.zc });
+    const fixed = this.cw.obbs.filter((o) => o.level === lv && !o.id.startsWith('door:') && o.id !== 'prison-door' && o.id !== 'prison-gate');   // pintu jeruji dibuka monster: bukan penghalang nav
+    const nav = new MonsterNav(this.cw, lv, fixed, { x: S.bx + S.sgn * S.run + 0.6, z: S.zc });   // bila penjara sudah dimuat (walkEx), nav lantai atas mencakup koridor + penjara
     return nav.count > 400 ? nav : null;
   }
   /** Navigasi lantai bawah (dari mulut kaki tangga) untuk monster dua lantai. null bila tidak ada tangga / lantai bawah tidak terjangkau. */
@@ -2182,12 +2158,12 @@ export class GameWorld {
   monsterFloorY(level: number, onStairs: boolean, x: number): number { return monsterFloorY(this.md.stair, level, onStairs, x); }
   /** Ruangan & area terlarang untuk tujuan seret monster (TAHAP 2): memakai data map + keepout yang sama dengan penempatan furnitur (spawn, pintu keluar, tangga, ayunan pintu). */
   /** STAGE 2: `prison` dibaca saat menangkap (getter): penjara dimuat async, jadi baru terisi setelah selesai dimuat; sebelum itu seretan lama ke ruangan biasa. */
-  dragEnv(): DragEnv { const w = this; return { rooms: this.md.rooms, avoid: this.keepouts, get prison() { return w.prison ? { x: PRISON_GATE.arrive.x, z: PRISON_GATE.arrive.z, lv: PRISON_LEVEL } : undefined; } }; }
+  dragEnv(): DragEnv { const w = this; return { rooms: this.md.rooms, avoid: this.keepouts, get prison() { return w.prison ? { x: slotStand(0).x, z: slotStand(0).z, lv: PRISON_LEVEL, slotGoal: (i: number) => slotStand(i) } : undefined; } }; }
   /** Titik di ujung atas tangga (monster tidak boleh muncul di sini). */
   stairTop(): { x: number; z: number } | null { const S = this.md.stair; return S ? { x: S.bx + S.sgn * S.run + 0.6, z: S.zc } : null; }
   readonly monsterEnv: MonsterEnv = { openDoorNear: (x, z, level, dx, dz) => this.monsterOpenDoor(x, z, level, dx, dz), gateDoor: (x, z, level, dx, dz) => this.monsterGateDoor(x, z, level, dx, dz), clearBlock: (x, z, level, dx, dz) => this.monsterClearBlock(x, z, level, dx, dz) };
   /** Posisi monster (hanya baca) untuk pintu: diberikan PlayScene dari MonsterController.view (otoritas = sim, klien lain = replika). null = tak ada / di tangga. */
-  monsterPos: (() => { x: number; z: number; level: number } | null) | null = null;
+  monsterPos: (() => { x: number; z: number; level: number; state?: string } | null) | null = null;
   private monsterAt(level: number): { x: number; z: number } | null { const m = this.monsterPos?.(); return m && m.level === level ? m : null; }
   /** Monster terhalang pintu: buka pintu terdekat di depannya (animasi lambat + derit, tersinkron ke pemain lain). false = tidak ada / terkunci. */
   private monsterOpenDoor(x: number, z: number, level: number, dx: number, dz: number): boolean {
@@ -2204,6 +2180,7 @@ export class GameWorld {
 
   /** Pintu tertutup / belum terbuka penuh tepat di depan monster (<= 1,3 m searah gerak): buka lebih dulu & tahan monster sampai daun terbuka penuh (true = tunggu). Terkunci -> false. */
   private monsterGateDoor(x: number, z: number, level: number, dx: number, dz: number): boolean {
+    if (this.prison?.gateWait(x, z, level)) return true;   // pintu jeruji penghubung sedang membuka: tunggu, jangan menabrak daun
     const R = CFG.MONSTER_RADIUS + 0.12;
     for (const rt of this.doors) {
       if (rt.d.type !== 'door' || rt.d.level !== level || rt.t >= 0.98) continue;

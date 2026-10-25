@@ -23,8 +23,8 @@ section('Model dari seed');
     // sirkuit: tepat satu himpunan tuas menyalakan semua lampu, dan tidak 0/1 tuas
     const sols = []; for (let s = 0; s < 32; s++) if (P.lampsFor(m, s) === 31) sols.push(s);
     if (sols.length !== 1 || sols[0] !== m.solution2 || P.popcount(m.solution2) < 2 || P.lampsFor(m, 0) === 31) badCirc++;
-    if (new Set(m.glyph).size !== 3 || m.glyph.some((g, i) => m.drum0[i] === g) || new Set(m.slotTrue.concat(m.decoy.map((d) => d.slot))).size !== 5) badGl++;
-    if (m.simon.length !== 5 || new Set(m.simon).size < 3 || new Set(m.layout4).size !== 4 || new Set(m.layout1).size !== 5) badSim++;
+    if (new Set(m.glyph).size !== 3 || m.glyph.some((g, i) => m.drum0[i] === g) || new Set(m.slotTrue.concat(m.decoy.map((d) => d.slot))).size !== 3 + P.DECOYS || m.decoy.length !== 1) badGl++;
+    if (m.simon.length !== P.SIMON_LEN || new Set(m.simon).size < 3 || new Set(m.layout4).size !== 4 || new Set(m.layout1).size !== 5) badSim++;
   }
   ok(bad === 0, 'deterministik & kode sah'); ok(sigs.size > 400, 'kode beragam ' + sigs.size);
   ok(badClue === 0, 'petunjuk logika: jawaban tunggal & benar'); ok(minC >= 4 && maxC <= 8, `jumlah petunjuk ${minC}..${maxC}`);
@@ -127,5 +127,30 @@ section('PIN 3 digit (saklar belakang tangga)');
   turn(0, m.pin[0]); turn(1, m.pin[1]); turn(2, m.pin[2]);
   const z2 = new P.RoomPuzzle(m); ok(z2.apply(z.snapshot()) && z2.pin.join() === m.pin.join(), 'digit PIN ikut snapshot (sinkron)');
   ok(z.checkPin() === 'done' && z.pinSt === 1 && z.openSecret() && z.secretOpen && z.turnPin(0) === 'ignored', 'PIN benar = hijau -> openSecret(), lalu terkunci');
+}
+
+section('Lebih mudah (Tahap kemudahan): petunjuk LOG, metronom, glif');
+{
+  let noApart = 0, noAnchor = 0, tooMany = 0, far = 0, nonUnique = 0;
+  for (let k = 1; k <= 400; k++) {
+    const m = P.makePuzzleModel(k * 2654435761 >>> 0);
+    if (m.clues.some((c) => c.t === 'apart')) noApart++;
+    if (!m.clues.some((c) => c.t === 'first' || c.t === 'last' || c.t === 'mid')) noAnchor++;
+    if (m.clues.length > 5 || m.clues.length < 4) tooMany++;
+    if (P.countOrders(m.clues) !== 1) nonUnique++;
+    m.glyph.forEach((g, i) => { const steps = (g - m.drum0[i] + P.GLYPHS.length) % P.GLYPHS.length; if (steps < 1 || steps > 3) far++; });
+  }
+  ok(noApart === 0, 'LOG: tanpa pernyataan negatif "tidak pernah berurutan"');
+  ok(noAnchor === 0, 'LOG: selalu ada satu jangkar posisi (PERTAMA/TERAKHIR/TENGAH)');
+  ok(tooMany === 0, 'LOG: 4-5 baris (muat di papan)');
+  ok(nonUnique === 0, 'LOG: jawaban tetap tunggal');
+  ok(far === 0, 'III: tiap tromol hanya 1-3 putaran dari jawaban');
+  ok(P.SIMON_LEN === 4, 'IV: urutan 4 kedipan');
+  ok(P.DECOYS === 1, 'III: papan palsu hanya 1 (dulu 2)');
+  const m = P.makePuzzleModel(777), z = new P.RoomPuzzle(m), good = (i) => m.layout4.indexOf(m.simon[i]), bad = (i) => [0, 1, 2, 3].find((q) => m.layout4[q] !== m.simon[i]);
+  z.pick4(good(0)); z.pick4(good(1)); z.pick4(good(2));
+  ok(z.pick4(bad(3)) === 'reset' && z.d === 2, 'IV: salah mundur SATU langkah (3 -> 2), bukan ke nol');
+  ok(z.pick4(bad(2)) === 'reset' && z.d === 1 && z.pick4(bad(1)) === 'reset' && z.d === 0 && z.pick4(bad(0)) === 'reset' && z.d === 0, 'IV: mundur bertahap, tidak pernah di bawah 0');
+  for (let i = 0; i < P.SIMON_LEN; i++) z.pick4(good(i)); ok(z.doneAt(4), 'IV: urutan benar tetap menyelesaikan teka-teki');
 }
 console.log(fails ? `\n${fails} GAGAL` : '\nSEMUA LULUS'); process.exit(fails ? 1 : 0);

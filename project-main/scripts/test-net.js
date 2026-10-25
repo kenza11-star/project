@@ -331,6 +331,15 @@ const members = (ids) => ids.map((id, i) => ({ id, name: 'P' + (i + 1), slot: i 
     host.reset(); ok(host.digest() === null, 'reset mengosongkan state ruangan');
   }
 
+  section('Pintu jeruji penjara: siaran sekali jalan (pdoor)');
+  {
+    const a = new W.WorldSync(), b = new W.WorldSync(), m = a.local({ k: 'pdoor', id: 0, o: 1 });
+    ok(m && m.ev[0].k === 'pdoor' && m.ev[0].id === 0 && m.ev[0].o === 1, 'pintu penghubung dibuka: disiarkan');
+    const e = b.receive(m, true); ok(e.length === 1 && e[0].k === 'pdoor' && e[0].id === 0 && e[0].o === 1, 'penerima menerapkan pintu jeruji');
+    ok(b.receive(W.sanitizeWorldMsg({ v: 1, t: 'w', ev: [{ k: 'pdoor', id: 2, o: 1 }, { k: 'pdoor', id: 1, o: 3 }] }), true).length === 0, 'id/o tidak sah ditolak');
+    ok(a.digest() === null, 'tidak disimpan di digest (state pintu mengikuti monster/pemain, bukan arsip)');
+  }
+
   console.log(`\nHASIL: ${passes} lulus, ${fails} gagal`);
   process.exit(fails ? 1 : 0);
 })();

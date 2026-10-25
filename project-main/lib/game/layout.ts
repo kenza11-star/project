@@ -58,7 +58,10 @@ export class NavGrid {
     if (w) { // area di luar mezzanine dianggap padat
       for (let j = 0; j < this.H; j++) for (let i = 0; i < this.W; i++) {
         const x = this.x0 + (i + 0.5) * CELL, z = this.z0 + (j + 0.5) * CELL;
-        if (x < w.minx || x > w.maxx || z < w.minz || z > w.maxz) { this.occ[j * this.W + i] = 1; this.wallOnly[j * this.W + i] = 1; }
+        if (x < w.minx || x > w.maxx || z < w.minz || z > w.maxz) {
+          if (cw.walkEx[level].some((e) => x >= e.minx && x <= e.maxx && z >= e.minz && z <= e.maxz)) continue;   // koridor/penjara tersambung: tetap bisa dilalui
+          this.occ[j * this.W + i] = 1; this.wallOnly[j * this.W + i] = 1;
+        }
       }
     }
     for (const o of fixed) if (o.level === level) this.addObb(o, 0.05); // margin agar benda tipis (partisi) tetap terdeteksi

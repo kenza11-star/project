@@ -27,11 +27,14 @@ export class CollisionWorld {
   readonly x0 = -2; readonly z0 = -2; readonly W = 620; readonly H = 500; // cakupan 62 x 50 m (map 38,4 x 38,4 m + bunker puzzle di timur (puzzleroom.ts) + penjara di timur-selatan (prisonroom.ts))
   readonly solid: Uint8Array[];
   readonly walk: (Rect | null)[];
+  /** Persegi jalan TAMBAHAN per level (gabungan dengan `walk`): koridor & penjara yang tersambung fisik ke mezzanine. Kosong = perilaku lama. */
+  readonly walkEx: Rect[][];
   readonly obbs: Obb[] = [];
 
   constructor(levels = 2) {
     this.solid = Array.from({ length: levels }, () => new Uint8Array(this.W * this.H));
     this.walk = Array.from({ length: levels }, () => null);
+    this.walkEx = Array.from({ length: levels }, () => []);
   }
 
   /** Rasterisasi segitiga (proyeksi XZ) ke grid solid. Segitiga tegak jadi garis tipis. */
@@ -75,6 +78,20 @@ export class CollisionWorld {
     const i0 = Math.max(0, Math.floor((minx - this.x0) / c)), i1 = Math.min(this.W - 1, Math.ceil((maxx - this.x0) / c) - 1);
     const j0 = Math.max(0, Math.floor((minz - this.z0) / c)), j1 = Math.min(this.H - 1, Math.ceil((maxz - this.z0) / c) - 1);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) g[j * this.W + i] = 1;
+  }
+  /** Kosongkan persegi (pusat dunia) pada grid solid level tsb (lubang di dinding untuk pintu jeruji penjara). */
+  clearRect(level: number, minx: number, minz: number, maxx: number, maxz: number): void {
+    const g = this.solid[level], c = this.cell;
+    const i0 = Math.max(0, Math.floor((minx - this.x0) / c)), i1 = Math.min(this.W - 1, Math.ceil((maxx - this.x0) / c) - 1);
+    const j0 = Math.max(0, Math.floor((minz - this.z0) / c)), j1 = Math.min(this.H - 1, Math.ceil((maxz - this.z0) / c) - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) g[j * this.W + i] = 0;
+  }
+  /** Titik bebas jalan: dalam `walk` ATAU salah satu `walkEx` (lingkaran radius r seluruhnya di dalam satu persegi). */
+  inWalk(x: number, z: number, r: number, level: number): boolean {
+    const w = this.walk[level]; if (!w) return true;
+    if (x - r >= w.minx && x + r <= w.maxx && z - r >= w.minz && z + r <= w.maxz) return true;
+    for (const e of this.walkEx[level]) if (x - r >= e.minx && x + r <= e.maxx && z - r >= e.minz && z + r <= e.maxz) return true;
+    return false;
   }
   addObb(o: ObbIn): Obb {
     const b: Obb = { ...o, enabled: true, cos: Math.cos(o.yaw), sin: Math.sin(o.yaw), rad: Math.hypot(o.hx, o.hz) };
@@ -152,8 +169,7 @@ export class CollisionWorld {
   }
 
   blocked(x: number, z: number, r: number, level: number): boolean {
-    const w = this.walk[level];
-    if (w && (x - r < w.minx || x + r > w.maxx || z - r < w.minz || z + r > w.maxz)) return true;
+    if (!this.inWalk(x, z, r, level)) return true;
     return this.gridBlocked(x, z, r, level) || this.obbBlocked(x, z, r, level);
   }
 }

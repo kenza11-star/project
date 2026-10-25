@@ -3,7 +3,7 @@
 // LOKASI TETAP (tidak acak): model ~14,4 x 16 m + antechamber tidak muat di mezz lantai 2 (mezz penuh 38,4 x 38,4 m oleh ruangan),
 // maka ditaruh sebagai volume di LUAR bangunan, di timur-selatan (x 42..57, z 27..47), setinggi lantai 2 (LEVEL_Y[1], grid collision level 1).
 // Tidak menabrak map (x <= 38,5) dan tidak bertumpuk dengan bunker (x 45..59, z 10..25, level 0). Terhubung dari ujung tangga lantai 2
-// lewat pintu baja di dinding timur (fade singkat). Koordinat model GLB -> dunia = model + PRISON_OFFSET (tanpa rotasi).
+// lewat PINTU JERUJI di dinding timur + koridor 6,7 m (jalur FISIK: tanpa teleport/fade; pemain & monster berjalan). Koordinat model GLB -> dunia = model + PRISON_OFFSET (tanpa rotasi).
 import { LEVEL_Y } from './config';
 
 export interface Box2 { minx: number; maxx: number; minz: number; maxz: number }
@@ -21,7 +21,11 @@ export const PRISON_FLOOR_Y = LEVEL_Y[PRISON_LEVEL];
 export const PRISON_CEIL_Y = CEIL_M + PRISON_OFFSET.y;
 /** Seluruh volume (sel + antechamber + dinding): menyembunyikan model saat pemain jauh & batas jalan collision saat di dalam. */
 export const PRISON_AREA: Box2 = bx(-4.1, 10.52, -5.0, 14.49);
-export const inPrison = (x: number, z: number, pad = 0) => x >= PRISON_AREA.minx - pad && x <= PRISON_AREA.maxx + pad && z >= PRISON_AREA.minz - pad && z <= PRISON_AREA.maxz + pad;
+/** Koridor interior dari pintu jeruji (dinding timur bangunan) ke antechamber. */
+export const PRISON_HALL: Box2 = Object.freeze({ minx: 38.5, maxx: 45.2, minz: 30.4, maxz: 31.9 });
+export const PRISON_HALL_H = 2.8;
+const inBox = (b: Box2, x: number, z: number, pad: number) => x >= b.minx - pad && x <= b.maxx + pad && z >= b.minz - pad && z <= b.maxz + pad;
+export const inPrison = (x: number, z: number, pad = 0) => inBox(PRISON_AREA, x, z, pad) || inBox(PRISON_HALL, x, z, pad);
 /** Metadata ruangan (bentuk sama dengan MapData.rooms) untuk pemetaan monster / seret (TAHAP 2). Tidak dimasukkan ke md.rooms agar tujuan seret lama tidak berubah. */
 export const PRISON_ROOM = Object.freeze({ id: 'Room_Prison', type: 'prison', rect: bx(-3.8, 9.85, 0.06, 13.92), height: CEIL_M - FLOOR_M, level: PRISON_LEVEL });
 
@@ -34,7 +38,9 @@ export const PRISON_WALLS: readonly Box2[] = Object.freeze([
   bx(4.12, 9.9, -0.6, -0.08),      // utara kanan
   bx(9.85, 10.52, -0.78, 14.49),   // timur (+ tiang pojok)
   bx(-3.9, 10.52, 13.92, 14.49),   // selatan
-  bx(-1.3, -1.0, -5.0, -0.6),      // antechamber barat
+  bx(-1.3, -1.0, -5.0, -2.1),      // antechamber barat (bukaan koridor di z -2,1..-0,6 = dunia 30,4..31,9)
+  Object.freeze({ minx: 38.5, maxx: 45.2, minz: 30.25, maxz: 30.4 }),   // koridor: dinding utara
+  Object.freeze({ minx: 38.5, maxx: 45.2, minz: 31.9, maxz: 32.05 }),   // koridor: dinding selatan
   bx(4.7, 5.0, -5.0, -0.6),        // antechamber timur
   bx(-1.3, 5.0, -5.0, -4.7),       // antechamber utara (sisi pintu keluar)
 ]);
@@ -73,10 +79,21 @@ export const PRISON_LIGHTS = Object.freeze([
 ]);
 
 /** Pintu baja penghubung di dinding timur ujung tangga lantai 2 (menghadap barat) + tempat muncul sesudah keluar. */
+/** PINTU JERUJI penghubung di dinding timur bangunan (ujung tangga lantai 2). Daun berengsel di sisi utara, membuka ke dalam koridor (+x). */
 export const PRISON_GATE = Object.freeze({
-  x: 38.3, z: 31.2, nx: -1, nz: 0, w: 1.1, h: 2.3,
-  arrive: { x: 37.9, z: 31.2, yaw: yawToward(37.9, 31.2, 30, 31.2) },
+  x: 38.3, z: 31.15, nx: -1, nz: 0, w: 1.5, h: 2.35,
+  hinge: { x: 38.3, z: 30.4 }, open: Math.PI / 2, reach: 3.0,
+  obb: { id: 'prison-gate', cx: 38.3, cz: 31.15, hx: 0.05, hz: 0.75, yaw: 0 },     // collider daun (aktif saat tertutup)
+  approach: { x: 37.4, z: 31.15 },                                                 // tempat berdiri di depan pintu (sisi bangunan)
+  arrive: { x: 37.9, z: 31.15, yaw: yawToward(37.9, 31.15, 30, 31.15) },
 });
+/** Lubang di dinding timur bangunan (mesh F2_Walls dipotong lewat shader, grid collision dikosongkan) selebar koridor. */
+export const PRISON_GATE_CUT = Object.freeze({ minx: 38.0, maxx: 38.6, minz: PRISON_HALL.minz, maxz: PRISON_HALL.maxz, y0: PRISON_FLOOR_Y, y1: PRISON_FLOOR_Y + PRISON_GATE.h });
+/** Persegi jalan tambahan level 1 (digabung dengan mezz): koridor (menjorok ke lubang dinding) + seluruh area penjara. */
+export const PRISON_WALK: readonly Box2[] = Object.freeze([
+  Object.freeze({ minx: 37.5, maxx: 45.5, minz: PRISON_HALL.minz, maxz: PRISON_HALL.maxz }),   // minx 37,5: lingkaran badan di ambang dinding (x 38,0..38,6) harus muat di satu persegi
+  Object.freeze({ minx: PRISON_AREA.minx - 0.3, maxx: PRISON_AREA.maxx + 0.3, minz: PRISON_AREA.minz - 0.3, maxz: PRISON_AREA.maxz + 0.3 }),
+]);
 /** Tempat muncul di antechamber (menghadap pintu sel) + pintu keluar di dinding utara antechamber (menghadap selatan). */
 export const PRISON_ENTRY = Object.freeze({
   arrive: { x: 1.85 + OX, z: -2.4 + OZ, yaw: yawToward(1.85 + OX, -2.4 + OZ, DOOR_FACE.x, DOOR_FACE.z) },
@@ -84,3 +101,9 @@ export const PRISON_ENTRY = Object.freeze({
 });
 /** Titik awal flood-fill nav monster di antechamber. */
 export const PRISON_NAV_SEED = Object.freeze({ x: 1.85 + OX, z: -2.4 + OZ });
+
+/** Titik berdiri monster saat menyeret ke slot i: 1,2 m dari titik ikat menuju pintu sel (korban mengikuti 1,4 m di belakang => berakhir di sekitar slot). */
+export function slotStand(i: number): { x: number; z: number } {
+  const n = PRISON_SLOTS.length, s = PRISON_SLOTS[((Math.floor(i) % n) + n) % n], dx = DOOR_FACE.x - s.x, dz = DOOR_FACE.z - s.z, d = Math.hypot(dx, dz) || 1;
+  return { x: s.x + (dx / d) * 1.2, z: s.z + (dz / d) * 1.2 };
+}

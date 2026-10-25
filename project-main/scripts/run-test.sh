@@ -33,3 +33,4 @@ node scripts/test-monster-door.js
 node scripts/test-switch.js
 node scripts/test-notes.js
 node scripts/test-doortex.js
+node scripts/test-prison-stageB.js

@@ -107,7 +107,7 @@ export class Bunker {
   private lampS1: THREE.MeshStandardMaterial[] = []; private lampS2: THREE.MeshStandardMaterial[] = []; private lampS4: THREE.MeshStandardMaterial[] = [];
   private lblS1: THREE.CanvasTexture[] = []; private lblS4: THREE.CanvasTexture[] = [];
   private drumTex: THREE.CanvasTexture[] = []; private digTex: THREE.CanvasTexture[] = [];
-  private plaqueTex: THREE.CanvasTexture | null = null; private glyphTex: THREE.CanvasTexture[] = [];
+  private plaqueTex: THREE.CanvasTexture | null = null; private glyphTex: THREE.CanvasTexture[] = []; private glyphPlanes: THREE.Mesh[] = [];
   private keyTex!: THREE.CanvasTexture; private termTex!: THREE.CanvasTexture;
   private door!: THREE.Group; private doorK = 0; private doorTarget = 0; private doorObb: ReturnType<CollisionWorld['addObb']> | null = null;
   private hatch = new THREE.Group(); private hatchReg: Reg | null = null;
@@ -292,7 +292,7 @@ export class Bunker {
     digAt.forEach((q, k) => { const tx = this.track(canvasTex(256, 140, () => {})); this.digTex.push(tx); this.plane(0.5, 0.27, this.mat({ map: tx, emissiveMap: tx, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.5 }), q.m, 0.09, q.y); });
     // ---- papan petunjuk (LOG) & papan glif ----
     { const tx = this.track(canvasTex(1024, 720, () => {})); this.plaqueTex = tx; this.plane(1.45, 1.02, plateM(tx), LAYOUT.s1Plaque, 0.03, 1.75); }
-    LAYOUT.glyphSlots.forEach((m) => { const tx = this.track(canvasTex(256, 256, () => {})); this.glyphTex.push(tx); this.plane(0.55, 0.55, plateM(tx), m, 0.03, 1.55); });
+    LAYOUT.glyphSlots.forEach((m) => { const tx = this.track(canvasTex(256, 256, () => {})); this.glyphTex.push(tx); this.glyphPlanes.push(this.plane(0.55, 0.55, plateM(tx), m, 0.03, 1.55)); });
 
     // ---- pintu besi + panel kode ----
     this.door = new THREE.Group(); this.door.position.set(LAYOUT.door.x, doorH / 2, LAYOUT.door.z); this.group.add(this.door);
@@ -448,6 +448,7 @@ export class Bunker {
     // papan simbol: 3 asli (I, II, III) + 2 palsu (dicoret)
     for (let s = 0; s < this.glyphTex.length; s++) {
       const k = m.slotTrue.indexOf(s), dec = m.decoy.find((q) => q.slot === s);
+      if (this.glyphPlanes[s]) this.glyphPlanes[s].visible = k >= 0 || !!dec;   // tempat papan yang tidak dipakai: disembunyikan (papan palsu hanya 1)
       redraw(this.glyphTex[s], (g, w, h) => {
         plateBase(g, w, h, '#3a3b36', '#1d1e1b'); g.textAlign = 'center';
         if (k >= 0) { g.fillStyle = '#e6dfc4'; g.font = 'bold 46px monospace'; g.fillText('TANDA ' + ROMAN[k], w / 2, 56); drawGlyphFill(g, m.glyph[k], w / 2, 138, 54, '#f0e9cf'); g.font = 'bold 24px monospace'; g.fillStyle = '#b9b39b'; g.fillText(GLYPHS[m.glyph[k]], w / 2, 236); }
@@ -507,7 +508,7 @@ export class Bunker {
     // metronom: lampu berkedip sesuai urutan (lokal)
     if (this.play) {
       const p = this.play, seq = this.model.simon; p.t += dt;
-      if (p.t >= 0.8 || p.step < 0) { if (p.step >= 0 && p.step < seq.length) { /* lanjut */ } p.t = 0; p.step++; if (p.step >= seq.length) this.play = null; else { this.flash[seq[p.step]] = 0.55; this.d.audio()?.play('flash_click', { pos: { x: LAYOUT.s4[0].x + 1, y: 2, z: LAYOUT.s4[0].z } }); this.d.ix.invalidate(); } }
+      if (p.t >= 1.1 || p.step < 0) { if (p.step >= 0 && p.step < seq.length) { /* lanjut */ } p.t = 0; p.step++; if (p.step >= seq.length) this.play = null; else { this.flash[seq[p.step]] = 0.55; this.d.audio()?.play('flash_click', { pos: { x: LAYOUT.s4[0].x + 1, y: 2, z: LAYOUT.s4[0].z } }); this.d.ix.invalidate(); } }
     }
     for (let c = 0; c < 4; c++) if (this.flash[c] > 0) this.flash[c] = Math.max(0, this.flash[c] - dt);
     for (let i = 0; i < SIMON_COLORS; i++) { const c = this.model.layout4[i]; this.setLamp(this.lampS4[i], COLORS[c].hex, this.flash[c] > 0, 2.2); }

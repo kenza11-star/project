@@ -100,6 +100,7 @@ export class MonsterController {
           if (e.type === 'catch') {                                // validasi sudah dilakukan sim: jarak + garis pandang + target sah (tidak hidden/kebal)
             this.grace.set(e.id, now + GRACE_AFTER_CATCH * 1000);
             const slot = this.pickSlot(e.id, obs, now);
+            if (e.drag) sim.setDragSlot(slot);                       // STAGE B: tujuan seret = titik di depan slot ini (jalur nyata ke penjara)
             const msg = { v: 1, t: 'mc', e: this.epoch, s: ++this.seq, id: e.id, dg: e.drag ? 1 : 0, cx: +sim.x.toFixed(2), cz: +sim.z.toFixed(2), cl: sim.level, sl: slot };   // cx/cz/cl = lokasi kejadian (TAHAP 4)
             if (this.net) { this.send(msg); this.pendingCatch.push({ at: now + 150, msg }, { at: now + 300, msg }); }   // kirim ulang (pesan hilang) — penerima menyaring duplikat
             if (e.id === (this.net ? this.net.selfId : self.id)) this.onCatchSelf?.(!!e.drag, slot);

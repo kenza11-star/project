@@ -3,17 +3,20 @@
 import * as THREE from 'three';
 import * as CFG from './config';
 import { DOOR_GLSL, DOOR_TEX_SIZE, makeDoorDetail } from './doortex';
+import { PRISON_GATE_CUT as CUT } from './prisonroom';
+/** Lubang pintu jeruji penjara di dinding timur lantai 2 (mesh F2_Walls dipotong di shader: tidak ada mesh baru, tidak mengubah GLB). Hanya material dengan hole=1. */
+const HOLE_GLSL = `if (u_hole > 0.5 && vWp.x > ${CUT.minx.toFixed(3)} && vWp.x < ${CUT.maxx.toFixed(3)} && vWp.z > ${CUT.minz.toFixed(3)} && vWp.z < ${CUT.maxz.toFixed(3)} && vWp.y > ${CUT.y0.toFixed(3)} && vWp.y < ${CUT.y1.toFixed(3)}) discard;`;
 
 type Std = THREE.MeshStandardMaterial;
 let ENV: THREE.Texture | null = null;
 export function setMaterialEnv(t: THREE.Texture | null) { ENV = t; }
 /** Pasang pantulan lingkungan pada material logam milik model lain (mis. soda) agar tidak hitam; nilai material GLB lainnya tidak diubah. */
 export function applyMaterialEnv(m: any, intensity: number) { if (ENV && m && m.isMeshStandardMaterial) { m.envMap = ENV; m.envMapIntensity = intensity; m.needsUpdate = true; } }
-interface Prof { tint?: [number, number, number]; rough?: number; rmin?: number; streak?: number; wet?: number; peel?: number; rust?: number; door?: number; scratch?: number; metal?: number; bump?: number; grime?: number; stain?: number; damp?: number; env?: number }
+interface Prof { tint?: [number, number, number]; rough?: number; rmin?: number; streak?: number; wet?: number; peel?: number; rust?: number; door?: number; hole?: number; scratch?: number; metal?: number; bump?: number; grime?: number; stain?: number; damp?: number; env?: number }
 
 // Profil per nama material GLB. tint = pengali warna (kuning dipertahankan, dikotori); rough = pengali roughness; grime = kekuatan AO kotor; damp = gelap lembap dekat lantai.
 const PROFILES: Record<string, Prof> = {
-  wallpaper: { tint: [0.84, 0.8, 0.62], rough: 1.0, bump: 0.6, grime: 1.0, stain: 1, damp: 1, streak: 1, peel: 1 },
+  wallpaper: { tint: [0.84, 0.8, 0.62], rough: 1.0, bump: 0.6, grime: 1.0, stain: 1, damp: 1, streak: 1, peel: 1, hole: 1 },
   concrete:  { tint: [0.78, 0.76, 0.68], rough: 1.0, bump: 0.8, grime: 0.9, stain: 1, damp: 1, streak: 0.8, wet: 0.7, env: 0.5 },
   ceiling:   { tint: [0.8, 0.76, 0.62], rough: 1.0, bump: 0.3, grime: 1.0, stain: 1, damp: 0.6, streak: 1 },
   carpet:    { tint: [0.8, 0.74, 0.55], rough: 1.0, bump: 1.2, grime: 1.1, stain: 1, wet: 1, env: 0.55 },
@@ -86,7 +89,7 @@ export class MaterialUpgrade {
     if (p.door) { this.doorWood(sm); sm.needsUpdate = true; return; } // bump/kotor generik (berbasis posisi dunia) diganti detail pintu
     if (p.bump) { sm.bumpMap = this.tx(this.fine, 1.7, 0.4); sm.bumpScale = 0.9 * p.bump * CFG.MATERIAL_BUMP; }
     if (sm.roughness < 0.99 && !p.env) sm.roughnessMap = this.tx(this.rough, 0.6, 1.1); // roughnessMap mengalikan: variasi kilap, tidak menambah glossy
-    this.dirt(sm, { grime: (p.grime ?? 0) * CFG.MATERIAL_GRIME, damp: p.damp ?? 0, streak: p.streak ?? 0, wet: p.wet ?? 0, peel: p.peel ?? 0, rust: p.rust ?? 0, scratch: p.scratch ?? 0 });
+    this.dirt(sm, { grime: (p.grime ?? 0) * CFG.MATERIAL_GRIME, damp: p.damp ?? 0, streak: p.streak ?? 0, wet: p.wet ?? 0, peel: p.peel ?? 0, rust: p.rust ?? 0, scratch: p.scratch ?? 0, hole: p.hole ?? 0 });
     sm.needsUpdate = true;
   }
 
@@ -118,7 +121,7 @@ export class MaterialUpgrade {
   }
 
   /** Aging procedural berbasis posisi dunia (tanpa UV tambahan, tanpa stretching). Cabang berbasis uniform: fitur yang tidak dipakai material = tidak ada texture tap. */
-  private dirt(m: Std, u: { grime: number; damp: number; streak: number; wet: number; peel: number; rust: number; scratch: number }) {
+  private dirt(m: Std, u: { grime: number; damp: number; streak: number; wet: number; peel: number; rust: number; scratch: number; hole: number }) {
     if (u.grime <= 0 && u.damp <= 0 && u.wet <= 0 && u.rust <= 0 && u.scratch <= 0) return;
     const stain = this.stain;
     m.onBeforeCompile = (sh) => {
@@ -128,8 +131,9 @@ export class MaterialUpgrade {
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz; vWn = abs(normalize(mat3(modelMatrix) * objectNormal));');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
         varying vec3 vWp; varying vec3 vWn; uniform sampler2D tStain;
-        uniform float u_grime; uniform float u_damp; uniform float u_streak; uniform float u_wet; uniform float u_peel; uniform float u_rust; uniform float u_scratch;`)
+        uniform float u_grime; uniform float u_damp; uniform float u_streak; uniform float u_wet; uniform float u_peel; uniform float u_rust; uniform float u_scratch; uniform float u_hole;`)
         .replace('#include <color_fragment>', `#include <color_fragment>
+        ${HOLE_GLSL}
         float gWet = 0.0, gDamp = 0.0, gRust = 0.0, gScr = 0.0;
         {
           bool horiz = vWn.y > 0.7;
