@@ -201,44 +201,58 @@ html.rotfix{--pt:max(8px,env(safe-area-inset-right));--pr:max(8px,env(safe-area-
 .fab:disabled{opacity:.3;pointer-events:none}
 .fab .cdn{font:700 clamp(13px,calc(var(--u)*4),18px) monospace}
 
-/* ---- Frame impact jumpscare (lib/game/impactfx.ts): potong-cepat B&W -> negatif -> glitch -> merah -> getar. Dikendalikan atribut data-f / data-g + --ia/--ib/--ir dari PlayScene; hanya aktif selama timeline jumpscare. ---- */
+/* ---- Frame impact jumpscare v17 (C3, lib/game/impactfx.ts): gaya referensi VHS/RGB -- pecah RGB merah/biru, robekan horizontal, blok merah/putih, scanline, noise, SATU kilat kontras singkat, lalu cepat reda.
+   Dikendalikan atribut data-f / data-g / data-sh + --ia/--ir/--ic/--is/--in dari PlayScene; hanya aktif selama timeline jumpscare. Tanpa backdrop-filter / mix-blend-mode / animasi berulang (ringan untuk mobile).
+   data-sh="1": PostFx (1 pass yang sudah ada) menggambar pecah RGB, robekan, blok, scanline, noise -> CSS hanya garis kecepatan, kilat, vignette, kabut merah.
+   data-sh="0": post mati -> lapisan CSS ringan (.ix-glitch .ix-rgb .ix-scan .ix-noise) menggantikan. ---- */
 .impactfx{position:absolute;inset:0;z-index:36;pointer-events:none;overflow:hidden;display:none}
 .impactfx>*{position:absolute;display:none}
-.impactfx .ix-bw,.impactfx .ix-red{inset:0}
-.impactfx .ix-lines{left:50%;top:47%;width:max(170vmax,170vw);height:max(170vmax,170vw);transform:translate(-50%,-50%) rotate(calc(var(--ir,0) * 1deg));opacity:.45;-webkit-mask-image:radial-gradient(circle at center,transparent 24%,#000 44%);mask-image:radial-gradient(circle at center,transparent 24%,#000 44%)}
+.impactfx .ix-bw,.impactfx .ix-red,.impactfx .ix-rgb,.impactfx .ix-scan,.impactfx .ix-noise{inset:0}
+.impactfx .ix-lines{left:50%;top:47%;width:max(170vmax,170vw);height:max(170vmax,170vw);transform:translate(-50%,-50%) rotate(calc(var(--ir,0) * 1deg));opacity:.5;-webkit-mask-image:radial-gradient(circle at center,transparent 24%,#000 44%);mask-image:radial-gradient(circle at center,transparent 24%,#000 44%)}
 .impactfx .ix-lines path{fill:currentColor}
-/* vignette gelap (tepi layar mendekati hitam) dipakai semua frame keras; wajah (tengah) tetap terbaca */
+/* vignette gelap di tepi; wajah (tengah) tetap terbaca */
 .impactfx .ix-bw::after,.impactfx .ix-red::after{content:"";position:absolute;inset:0;pointer-events:none}
-.impactfx .ix-bw::after{background:radial-gradient(ellipse at 50% 46%,transparent 28%,rgba(0,0,0,.55) 62%,rgba(0,0,0,.94) 100%)}
-.impactfx .ix-flash{inset:0;background:#d8d8d8;opacity:0}
+.impactfx .ix-bw::after{background:radial-gradient(ellipse at 50% 46%,transparent 30%,rgba(0,0,0,.5) 64%,rgba(0,0,0,.92) 100%)}
+.impactfx .ix-flash{inset:0;background:#fff;opacity:0}
+/* fallback tanpa post: batang robekan berwarna (merah / putih / biru) bergeser tiap data-g */
 .impactfx .ix-glitch{inset:0}
 .impactfx .ix-glitch i{position:absolute;left:-6%;right:-6%}
-.impactfx .ix-glitch i:nth-child(1){top:9%;height:2.5%;background:rgba(0,0,0,.7)}
-.impactfx .ix-glitch i:nth-child(2){top:33%;height:1.5%;background:rgba(120,0,14,.45)}
-.impactfx .ix-glitch i:nth-child(3){top:41%;height:3%;background:rgba(0,0,0,.65)}
-.impactfx .ix-glitch i:nth-child(4){top:62%;height:1.5%;background:rgba(70,70,70,.5)}
-.impactfx .ix-glitch i:nth-child(5){top:78%;height:2.5%;background:rgba(0,0,0,.7)}
-.impactfx .ix-glitch i:nth-child(6){top:90%;height:1.5%;background:rgba(120,0,14,.4)}
+.impactfx .ix-glitch i:nth-child(1){top:9%;height:2.5%;background:rgba(235,10,30,.85)}
+.impactfx .ix-glitch i:nth-child(2){top:33%;height:1.5%;background:rgba(255,245,240,.8)}
+.impactfx .ix-glitch i:nth-child(3){top:41%;height:3%;background:rgba(220,0,20,.8)}
+.impactfx .ix-glitch i:nth-child(4){top:62%;height:1.5%;background:rgba(50,130,255,.7)}
+.impactfx .ix-glitch i:nth-child(5){top:78%;height:2.5%;background:rgba(235,10,30,.85)}
+.impactfx .ix-glitch i:nth-child(6){top:90%;height:1.5%;background:rgba(255,245,240,.75)}
 .impactfx[data-g="0"] .ix-glitch i:nth-child(odd){transform:translateX(5%)}.impactfx[data-g="0"] .ix-glitch i:nth-child(even){transform:translateX(-7%)}
 .impactfx[data-g="1"] .ix-glitch i:nth-child(odd){transform:translateX(-9%)}.impactfx[data-g="1"] .ix-glitch i:nth-child(even){transform:translateX(4%)}
 .impactfx[data-g="2"] .ix-glitch i:nth-child(odd){transform:translateX(3%)}.impactfx[data-g="2"] .ix-glitch i:nth-child(even){transform:translateX(10%)}
-/* Palet HANYA hitam / abu / merah darah tua. Rata-rata luminans layar <= ~35% di tiap frame (kecuali satu kilatan <= 0,05 dtk di frame 1). */
-/* 1: hitam-putih gelap, midtone wajah terbaca + garis abu tipis + SATU kilatan singkat */
-.impactfx[data-f="1"] .ix-bw{display:block;background:rgba(0,0,0,.3);-webkit-backdrop-filter:grayscale(1) contrast(1.9) brightness(.62);backdrop-filter:grayscale(1) contrast(1.9) brightness(.62)}
-.impactfx[data-f="1"] .ix-a{display:block;color:#b8b8b8}
+/* fallback tanpa post: tepi pecah RGB merah/biru, scanline, noise (kekuatan dari --ic/--is/--in) */
+.impactfx .ix-rgb{box-shadow:inset 16px 0 30px rgba(255,20,40,calc(var(--ic,0) * .6)),inset -16px 0 30px rgba(40,130,255,calc(var(--ic,0) * .6))}
+.impactfx .ix-scan{background:repeating-linear-gradient(0deg,rgba(0,0,0,calc(var(--is,0) * .34)) 0 1px,transparent 1px 3px)}
+.impactfx .ix-noise{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='1' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.5 -.4'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");background-size:160px 160px;opacity:calc(var(--in,0) * .35)}
+.impactfx[data-g="1"] .ix-noise{background-position:-53px 71px}.impactfx[data-g="2"] .ix-noise{background-position:-97px -29px}
+.impactfx[data-sh="1"] .ix-glitch,.impactfx[data-sh="1"] .ix-rgb,.impactfx[data-sh="1"] .ix-scan,.impactfx[data-sh="1"] .ix-noise{display:none !important}
+/* 1: kilat kontras (SATU kali, <= 0,05 dtk) + garis kecepatan putih */
+.impactfx[data-f="1"] .ix-bw{display:block}
+.impactfx[data-f="1"] .ix-a{display:block;color:#fff}
 .impactfx[data-f="1"] .ix-flash{display:block;animation:ixflash .05s steps(1,end) 1 both}
-@keyframes ixflash{0%{opacity:.3}100%{opacity:0}}
-/* 2: negatif yang diredam (tidak pernah putih murni): latar abu gelap, wajah gelap bertepi */
-.impactfx[data-f="2"] .ix-bw{display:block;background:rgba(70,70,70,.22);-webkit-backdrop-filter:grayscale(1) invert(1) contrast(1) brightness(.58);backdrop-filter:grayscale(1) invert(1) contrast(1) brightness(.58)}
-.impactfx[data-f="2"] .ix-b{display:block;color:#000}
-/* 3: glitch monokrom: sedikit pecah RGB (batang merah tua + abu) dan batang gelap tipis */
-.impactfx[data-f="3"] .ix-bw{display:block;background:rgba(0,0,0,.2);-webkit-backdrop-filter:grayscale(1) contrast(1.4) brightness(.6);backdrop-filter:grayscale(1) contrast(1.4) brightness(.6)}
-.impactfx[data-f="3"] .ix-glitch{display:block}
-/* 4: merah tua monokrom di atas hampir-hitam: hanya wajah/tubuh yang menyala, mata & mulut terbaca */
-.impactfx[data-f="4"] .ix-bw{display:block;-webkit-backdrop-filter:grayscale(1) contrast(2.1) brightness(.42) sepia(1) saturate(14) hue-rotate(-31deg) brightness(.68);backdrop-filter:grayscale(1) contrast(2.1) brightness(.42) sepia(1) saturate(14) hue-rotate(-31deg) brightness(.68)}
+@keyframes ixflash{0%{opacity:.5}100%{opacity:0}}
+.impactfx[data-f="1"] .ix-rgb,.impactfx[data-f="1"] .ix-scan,.impactfx[data-f="1"] .ix-noise{display:block}
+/* 2: pecah RGB kuat + garis kecepatan merah */
+.impactfx[data-f="2"] .ix-bw{display:block}
+.impactfx[data-f="2"] .ix-b{display:block;color:#ff2038}
+.impactfx[data-f="2"] .ix-rgb,.impactfx[data-f="2"] .ix-scan,.impactfx[data-f="2"] .ix-noise{display:block}
+/* 3: PUNCAK -- robekan + blok + scanline + noise, garis kecepatan merah & putih */
+.impactfx[data-f="3"] .ix-bw{display:block}
+.impactfx[data-f="3"] .ix-a{display:block;color:#ff2038}.impactfx[data-f="3"] .ix-b{display:block;color:#fff}
+.impactfx[data-f="3"] .ix-glitch,.impactfx[data-f="3"] .ix-rgb,.impactfx[data-f="3"] .ix-scan,.impactfx[data-f="3"] .ix-noise{display:block}
+/* 4: glitch meluruh + kabut merah di tepi (wajah tetap terbaca) */
+.impactfx[data-f="4"] .ix-bw{display:block}
 .impactfx[data-f="4"] .ix-red{display:block}
-.impactfx[data-f="4"] .ix-red::after{background:radial-gradient(ellipse at 50% 46%,transparent 22%,rgba(0,0,0,.8) 56%,rgba(0,0,0,.98) 100%)}
-.impactfx[data-f="4"] .ix-b{display:block;color:#1c0000}
-/* 5: getar/blur yang mereda + kabut merah tua memudar; tepi tetap gelap */
-.impactfx[data-f="5"] .ix-bw{display:block;-webkit-backdrop-filter:brightness(.72) blur(calc(var(--ib,0) * 1px));backdrop-filter:brightness(.72) blur(calc(var(--ib,0) * 1px))}
-.impactfx[data-f="5"] .ix-red{display:block;background:radial-gradient(ellipse at center,rgba(60,0,0,calc(var(--ia,0) * .3)) 20%,rgba(40,0,4,calc(.35 + var(--ia,0) * .6)) 100%)}
+.impactfx[data-f="4"] .ix-red::after{background:radial-gradient(ellipse at 50% 46%,transparent 30%,rgba(70,0,8,.5) 68%,rgba(25,0,3,.82) 100%)}
+.impactfx[data-f="4"] .ix-glitch i:nth-child(odd){display:none}
+.impactfx[data-f="4"] .ix-glitch,.impactfx[data-f="4"] .ix-rgb,.impactfx[data-f="4"] .ix-scan,.impactfx[data-f="4"] .ix-noise{display:block}
+/* 5: aftershock singkat: sisa glitch meluruh cepat, kabut merah tipis memudar */
+.impactfx[data-f="5"] .ix-bw{display:block}
+.impactfx[data-f="5"] .ix-red{display:block;background:radial-gradient(ellipse at center,rgba(60,0,0,calc(var(--ia,0) * .2)) 24%,rgba(40,0,4,calc(.2 + var(--ia,0) * .5)) 100%)}
+.impactfx[data-f="5"] .ix-rgb,.impactfx[data-f="5"] .ix-scan,.impactfx[data-f="5"] .ix-noise{display:block}

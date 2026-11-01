@@ -51,7 +51,9 @@ export interface JsFrame {
   done: boolean; cues: JsCue[];
 }
 export const JS_TOTAL = 3.6;
-export const JS_FACE_DIST = 0.7, JS_FACE_ABOVE = 0.12;   // wajah mendekat sampai ~0,7 m dari kamera; kepala sedikit di atas kamera agar wajah terlihat
+export const JS_FACE_DIST = 0.7, JS_FACE_ABOVE = 0.04;   // wajah mendekat sampai ~0,7 m dari kamera; tulang kepala sedikit di atas kamera (0,04; dulu 0,12: lengan mendominasi layar saat grab & sebagian lengan menembus near-plane saat benturan)
+/** Klip 'grab' mulai JS_GRAB_DELAY dtk setelah jumpscare (dulu 0,15): lengan tetap terlipat selama lunge dan baru terulur sesudah benturan -> tidak memotong near-plane kamera tepat di frame benturan. */
+export const JS_GRAB_DELAY = 0.45;
 /** Waktu (detik sejak tangkapan) teriakan & benturan tangan. Dipakai bersama oleh timeline jumpscare korban dan audio tangkapan spasial (captureaudio.ts) agar semua pemain mendengar urutan yang sama. */
 export const JS_SCREAM_AT = 0.4, JS_IMPACT_AT = 0.95;
 /** Lapisan audio tangkapan (captureaudio.ts), semuanya jatuh SEBELUM benturan: dengung rendah mulai lebih awal; teriakan naik bertahap rendah -> sedang -> tinggi (JS_SCREAM_AT = tahap rendah); lalu benturan di JS_IMPACT_AT. */
@@ -82,8 +84,9 @@ export class Jumpscare {
     this.t += Math.min(Math.max(dt, 0), 0.1); const t = this.t; f.t = t;
     f.phase = t < 0.3 ? 'turn' : t < 1.0 ? 'lunge' : t < 2.5 ? 'grab' : t < JS_TOTAL ? 'fade' : 'done';
     f.lookW = sstep(t / 0.3);
-    f.reach = sstep((t - 0.25) / 0.75); f.dist = 1.6 - 0.9 * f.reach;
-    f.grabT = Math.max(0, t - 0.15);
+    // Lunge: percepatan (ease-in pangkat 2,2) -> kecepatan puncak (~2,8 m/s) tepat di benturan JS_IMPACT_AT (dulu smoothstep simetris: puncak 1,8 m/s di t~0,63 lalu melambat sebelum benturan). Posisi tetap kontinu.
+    f.reach = Math.pow(Math.min(1, Math.max(0, (t - 0.25) / (JS_IMPACT_AT - 0.25))), 2.2); f.dist = 1.6 - 0.9 * f.reach;
+    f.grabT = Math.max(0, t - JS_GRAB_DELAY);
     const rk = this.reduced ? 0.4 : 1, kick = Math.exp(-Math.pow((t - JS_IMPACT_AT) / 0.1, 2));   // kick: hentakan tepat saat benturan (JS_IMPACT_AT)
     const amp = rk * (t < 0.25 ? 0.15 : 0.4 + 0.6 * sstep((t - 0.9) / 0.4) + 0.9 * kick) * (1 - 0.5 * sstep((t - 2.5) / 0.9));
     f.shakeX = 0.034 * amp * Math.sin(t * 91) + 0.015 * amp * Math.sin(t * 143); f.shakeY = 0.03 * amp * Math.sin(t * 77 + 1) + 0.014 * amp * Math.sin(t * 131);

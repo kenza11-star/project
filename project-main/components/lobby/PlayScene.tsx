@@ -375,11 +375,11 @@ export default function PlayScene({ roster, onExit, onRetry, net }: { roster: Sl
       impactFx(f.t);
     };
     // Frame impact (impactfx.ts): murni fungsi waktu jumpscare -> tidak ada timer/loop; lewat IMPACT_END otomatis mati. Tulis DOM hanya bila berubah.
-    let impOut: ImpactOut | null = null, impF = -1, impG = -1, impA = -1, impB = -1, impZ = 1, impOx = -1, impOy = -1; const _ip = new THREE.Vector3();
+    let impOut: ImpactOut | null = null, impF = -1, impG = -1, impA = -1, impB = -1, impZ = 1, impOx = -1, impOy = -1, impSh = -1, impC = -1, impS = -1, impN = -1; const _ip = new THREE.Vector3();
     const impactFx = (t: number) => {
       const el = impactRef.current; if (!el) return;
       const o = impactAt(t, jsReduced); impOut = o.idx === 0 ? null : o;
-      if (o.idx === 0) { if (impF !== 0) { impF = 0; el.style.display = 'none'; el.dataset.f = '0'; } return; }
+      if (o.idx === 0) { if (impF !== 0) { impF = 0; el.style.display = 'none'; el.dataset.f = '0'; post?.clearGlitch(); } return; }
       if (impF === 0 || impF < 0) el.style.display = 'block';
       if (o.idx !== impF) { impF = o.idx; el.dataset.f = String(o.idx); el.style.setProperty('--ir', String(o.rot)); }
       if (o.g !== impG) { impG = o.g; el.dataset.g = String(o.g); }
@@ -387,11 +387,18 @@ export default function PlayScene({ roster, onExit, onRetry, net }: { roster: Sl
       const z = Math.round(o.zoom * 20) / 20;
       if (z > 1 && mview) { mview.headPos(_ip); _ip.project(cam); const ox = Math.round((_ip.x * 0.5 + 0.5) * 200) / 2, oy = Math.round((0.5 - _ip.y * 0.5) * 200) / 2; if (ox !== impOx || oy !== impOy) { impOx = ox; impOy = oy; canvas.style.transformOrigin = Math.min(Math.max(ox, 15), 85) + '% ' + Math.min(Math.max(oy - 4, 15), 85) + '%'; } }
       if (z !== impZ) { impZ = z; canvas.style.transform = z > 1 ? 'scale(' + z.toFixed(2) + ')' : ''; }
+      // Glitch (C3): bila PostFx aktif -> uniform pass yang sudah ada; bila tidak -> lapisan CSS ringan (variabel hanya ditulis saat berubah)
+      const sh = post ? 1 : 0; if (sh !== impSh) { impSh = sh; el.dataset.sh = String(sh); }
+      if (post) post.setGlitch(o.ch, o.tr, o.sc, o.ns, o.fl, o.seed);
+      else {
+        const gc = Math.round(o.ch * 20) / 20, gs = Math.round(o.sc * 20) / 20, gn = Math.round(o.ns * 20) / 20;
+        if (gc !== impC) { impC = gc; el.style.setProperty('--ic', gc.toFixed(2)); } if (gs !== impS) { impS = gs; el.style.setProperty('--is', gs.toFixed(2)); } if (gn !== impN) { impN = gn; el.style.setProperty('--in', gn.toFixed(2)); }
+      }
       const a = Math.round(o.a * 50) / 50, b = Math.round(o.blur * 2) / 2;
       if (a !== impA) { impA = a; el.style.setProperty('--ia', a.toFixed(2)); }
       if (b !== impB) { impB = b; el.style.setProperty('--ib', b.toFixed(1)); }
     };
-    const impactHide = () => { impOut = null; impF = impG = impA = impB = -1; impZ = 1; impOx = impOy = -1; canvas.style.transform = ''; canvas.style.transformOrigin = ''; const el = impactRef.current; if (el) { el.style.display = 'none'; el.dataset.f = '0'; } };
+    const impactHide = () => { impOut = null; impF = impG = impA = impB = -1; impZ = 1; impOx = impOy = -1; impSh = impC = impS = impN = -1; post?.clearGlitch(); canvas.style.transform = ''; canvas.style.transformOrigin = ''; const el = impactRef.current; if (el) { el.style.display = 'none'; el.dataset.f = '0'; } };
     const jsFxHide = () => { impactHide(); const el = bloodRef.current; if (el) { el.style.display = 'none'; el.style.setProperty('--bl', '0'); } };
     /** Batalkan/bersihkan seluruh efek capture (restart, respawn, unmount): overlay, peredam audio, dan WakeUp milik capture. WakeUp opening tidak disentuh. */
     const resetCapture = () => {
@@ -1126,11 +1133,14 @@ export default function PlayScene({ roster, onExit, onRetry, net }: { roster: Sl
         {BLOOD_DRIPS.map(([l, h], i) => <i key={'d' + i} style={{ position: 'absolute', left: l + '%', top: 0, width: 5, height: h, borderRadius: '0 0 6px 6px', background: 'linear-gradient(#7a0008, #4a0004)', opacity: 'var(--bl)', transformOrigin: 'top', transform: 'scaleY(var(--bs))' }} />)}
         <div style={{ position: 'absolute', inset: 0, opacity: 'var(--bl)', boxShadow: 'inset calc(var(--ca) * 1px) 0 calc(var(--ca) * 2.2px) rgba(255,20,40,.45), inset calc(var(--ca) * -1px) 0 calc(var(--ca) * 2.2px) rgba(30,90,255,.4)' }} />
       </div>
-      <div ref={impactRef} className="impactfx" aria-hidden data-f="0" data-g="0">
+      <div ref={impactRef} className="impactfx" aria-hidden data-f="0" data-g="0" data-sh="0">
         <div className="ix-bw" />
         <svg className="ix-lines ix-a" viewBox="0 0 100 100"><path d={IMPACT_RAYS_A} /></svg>
         <svg className="ix-lines ix-b" viewBox="0 0 100 100"><path d={IMPACT_RAYS_B} /></svg>
         <div className="ix-glitch"><i /><i /><i /><i /><i /><i /></div>
+        <div className="ix-rgb" />
+        <div className="ix-scan" />
+        <div className="ix-noise" />
         <div className="ix-flash" />
         <div className="ix-red" />
       </div>

@@ -1,6 +1,7 @@
 // Frame impact jumpscare ala anime/horor (logika murni, tanpa DOM/three; dites di scripts/test-impact.js).
 // Urutan potong-cepat tepat saat benturan (JS_IMPACT_AT), semua dihitung dari waktu jumpscare `t` -> FUNGSI WAKTU MURNI:
-//   1 = B&W + garis kecepatan   2 = B&W terbalik (negatif) + zoom   3 = glitch RGB tipis (monokrom)   4 = merah tua gelap   5 = getar/blur yang mereda
+//   1 = kilat kontras + garis kecepatan + pecah RGB   2 = pecah RGB kuat + zoom   3 = PUNCAK glitch (robekan horizontal, blok merah/putih, scanline, noise)   4 = glitch meluruh + kabut merah   5 = aftershock singkat
+// C3: gaya referensi VHS/RGB. Intensitas glitch (ch/tr/sc/ns/fl + seed) dikirim ke satu pass post-process yang SUDAH ada (postfx.ts) atau, bila post mati, ke overlay CSS ringan.
 // Tidak ada timer/loop sendiri: lewat IMPACT_END hasilnya selalu idx 0 (mati). Tidak mungkin "nyangkut".
 // reduced (prefers-reduced-motion): tanpa kilatan keras/strobo/getar; hanya satu denyut merah lembut.
 import { JS_IMPACT_AT } from './monsterfx';
@@ -24,6 +25,13 @@ export interface ImpactOut {
   fov: number;     // derajat tambahan FOV kamera (hentakan zoom)
   zoom: number;    // >= 1: pembesaran layar ke arah wajah monster (close-up impact, seperti panel manga)
   sx: number; sy: number;   // radian tambahan getar kamera
+  // --- C3: kekuatan glitch 0..1 (semua 0 di luar jendela impact dan pada mode reduced) ---
+  ch: number;      // pemisahan kanal RGB merah/biru
+  tr: number;      // robekan horizontal (pita bergeser + blok merah/putih)
+  sc: number;      // scanline
+  ns: number;      // noise/static
+  fl: number;      // kilat kontras tinggi (SATU kali, <= 0,07 dtk, hanya frame 1)
+  seed: number;    // bilangan bulat; berganti tiap 0,04 dtk -> pola glitch berubah (tidak statis)
 }
 
 const FRAME_ROT = [0, 0, 7, 0, -5, 0];
@@ -32,11 +40,15 @@ const FRAME_ZOOM = [1, 1.7, 2.9, 2.3, 2.1];   // frame 2 = wajah memenuhi layar
 const FRAME_SX = [0, 0.05, -0.07, 0.04, 0.05];
 const FRAME_SY = [0, -0.03, 0.05, -0.04, 0.03];
 
-const out: ImpactOut = { idx: 0, g: 0, rot: 0, a: 0, blur: 0, fov: 0, zoom: 1, sx: 0, sy: 0 };
+// Intensitas glitch per frame keras (indeks 1..4). Puncak di frame 1-3 (r < 0,25 dtk sesudah benturan), frame 4 meluruh.
+const FRAME_CH = [0, 1.0, 0.9, 1.0, 0.55], FRAME_TR = [0, 0.5, 0.8, 1.0, 0.4], FRAME_SC = [0, 0.55, 0.6, 0.85, 0.45], FRAME_NS = [0, 0.5, 0.65, 0.8, 0.3], FRAME_FL = [0, 1, 0, 0, 0];
+export const IMPACT_GLITCH_TAIL = 0.25;   // bagian awal aftershock (fraksi IMPACT_AFTER_DUR) yang masih memuat sisa glitch; sesudahnya 0
+
+const out: ImpactOut = { idx: 0, g: 0, rot: 0, a: 0, blur: 0, fov: 0, zoom: 1, sx: 0, sy: 0, ch: 0, tr: 0, sc: 0, ns: 0, fl: 0, seed: 0 };
 
 /** Keadaan efek impact pada waktu jumpscare `t`. Objek hasil dipakai ulang (tanpa alokasi). */
 export function impactAt(t: number, reduced = false): ImpactOut {
-  const o = out; o.idx = 0; o.g = 0; o.rot = 0; o.a = 0; o.blur = 0; o.fov = 0; o.zoom = 1; o.sx = 0; o.sy = 0;
+  const o = out; o.idx = 0; o.g = 0; o.rot = 0; o.a = 0; o.blur = 0; o.fov = 0; o.zoom = 1; o.sx = 0; o.sy = 0; o.ch = 0; o.tr = 0; o.sc = 0; o.ns = 0; o.fl = 0; o.seed = 0;
   const r = t - JS_IMPACT_AT;
   if (!(r >= 0) || r >= HARD_END + IMPACT_AFTER_DUR) return o;
   if (reduced) {   // satu denyut merah lembut, tanpa strobo / getar
@@ -49,13 +61,18 @@ export function impactAt(t: number, reduced = false): ImpactOut {
     acc += IMPACT_FRAME_DUR[i];
     if (r < acc) {
       o.idx = (i + 1) as ImpactIdx; o.rot = FRAME_ROT[i + 1]; o.fov = FRAME_FOV[i + 1]; o.zoom = FRAME_ZOOM[i + 1]; o.sx = FRAME_SX[i + 1]; o.sy = FRAME_SY[i + 1];
-      if (i === 2) o.g = Math.floor(r / 0.04) % 3;
+      o.g = Math.floor(r / 0.04) % 3; o.seed = 1 + Math.floor(r / 0.04);
+      o.ch = FRAME_CH[i + 1]; o.tr = FRAME_TR[i + 1]; o.sc = FRAME_SC[i + 1]; o.ns = FRAME_NS[i + 1]; o.fl = FRAME_FL[i + 1];
+      if (i === 3) { const m = 1 - 0.55 * clamp01((r - (acc - IMPACT_FRAME_DUR[3])) / IMPACT_FRAME_DUR[3]); o.ch *= m; o.tr *= m; o.sc *= m; o.ns *= m; }   // frame 4: meluruh
       return o;
     }
   }
   const k = clamp01((r - HARD_END) / IMPACT_AFTER_DUR), e = Math.pow(1 - k, 1.4);   // meredanya lebih lambat (kurva 1,4) supaya merah/blur terasa lama
-  o.idx = 5; o.a = 0.8 * e; o.blur = 7 * e; o.fov = 4 * e; o.zoom = 1 + 1.1 * e;
+  // C3: kabut merah & blur aftershock dikurangi (dulu a 0,8 / blur 7) agar wajah monster tetap terbaca; zoom, FOV, dan getar tidak diubah.
+  o.idx = 5; o.a = 0.5 * e; o.blur = 2.5 * e; o.fov = 4 * e; o.zoom = 1 + 1.1 * e;
   o.sx = 0.03 * e * Math.sin(t * 70); o.sy = 0.025 * e * Math.sin(t * 57 + 1);
+  const ge = Math.pow(clamp01(1 - k / IMPACT_GLITCH_TAIL), 2);   // sisa glitch meluruh cepat: nol sesudah ~0,24 dtk
+  if (ge > 0) { o.ch = 0.22 * ge; o.tr = 0.16 * ge; o.sc = 0.2 * ge; o.ns = 0.15 * ge; o.g = Math.floor(r / 0.04) % 3; o.seed = 1 + Math.floor(r / 0.04); }
   return o;
 }
 
