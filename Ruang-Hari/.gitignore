@@ -1,0 +1,7 @@
+node_modules/
+android/
+data/
+.env
+*.sqlite*
+*.apk
+.openai/local*

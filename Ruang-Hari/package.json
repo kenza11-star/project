@@ -1,0 +1,26 @@
+{
+  "name": "ruang-hari",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal daily companion with localStorage and Android APK build",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "build:web": "node scripts/build-native.mjs",
+    "android:init": "npm run build:web && cap add android && cap sync android",
+    "android:sync": "npm run build:web && cap sync android",
+    "check": "node --check dist/app.js && node --check scripts/android-resources.mjs"
+  },
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.4.0",
+    "@capacitor/local-notifications": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/cli": "^7.4.0",
+    "esbuild": "^0.25.0"
+  }
+}
